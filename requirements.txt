@@ -6,3 +6,5 @@ pydantic_core==2.46.0
 tortoise-orm==1.1.7
 uuid6==2025.0.1
 uvicorn==0.44.0
+python-dotenv==1.2.2
+dotenv==0.9.9
