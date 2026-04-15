@@ -6,7 +6,8 @@ from tortoise.contrib.fastapi import register_tortoise
 from pydantic import BaseModel
 from uuid6 import uuid7
 import os
-
+from dotenv import load_dotenv
+load_dotenv()
 from models import Profile
 from utils import (
     fetch_external_data,
