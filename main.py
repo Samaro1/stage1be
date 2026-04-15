@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -23,6 +23,7 @@ app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -48,7 +49,6 @@ register_tortoise(
 
 class ProfileRequest(BaseModel):
     name: str
-
 
 
 @app.post("/api/profiles")
@@ -138,24 +138,19 @@ async def fetch_profiles(gender: str = None, country_id: str = None, age_group: 
         status_code=200,
         content={
             "status": "success",
+            "count": len(profiles),
             "data": [
-                {
-                    "id": str(profile.id),
-                    "name": profile.name,
-                    "gender": profile.gender,
-                    "gender_probability": profile.gender_probability,
-                    "sample_size": profile.sample_size,
-                    "age": profile.age,
-                    "age_group": profile.age_group,
-                    "country_id": profile.country_id,
-                    "country_probability": profile.country_probability,
-                    "created_at": profile.created_at.isoformat().replace("+00:00", "Z"),
-                }
-                for profile in profiles
-            ]
-        }
-    )
-
+            {
+                "id": str(profile.id),
+                "name": profile.name,
+                "gender": profile.gender,
+                "age": profile.age,
+                "age_group": profile.age_group,
+                "country_id": profile.country_id,
+            }
+            for profile in profiles
+    ]
+        })
 
 @app.get("/api/profiles/{id}")
 async def get_profile(id: str):
@@ -196,7 +191,4 @@ async def delete_profile(id: str):
             detail={"status": "error", "message": "Profile not found"}
         )
     await profile.delete()
-    return JSONResponse(
-        status_code=200,
-        content={"status": "success", "message": "Profile deleted successfully"}
-    )
+    return Response(status_code=204)

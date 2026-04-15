@@ -1,6 +1,5 @@
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
-from fastapi.exceptions import RequestValidationError
 import httpx
 import asyncio
 
@@ -45,11 +44,11 @@ async def fetch_external_data(name: str) -> tuple[dict, dict, dict]:
             )
 
     if gender_res.status_code != 200:
-        raise HTTPException(status_code=502, detail={"status": "error", "message": "Genderize API error"})
+        raise HTTPException(status_code=502, detail={"status": "error", "message": "Genderize returned an invalid response"})
     if age_res.status_code != 200:
-        raise HTTPException(status_code=502, detail={"status": "error", "message": "Agify API error"})
+        raise HTTPException(status_code=502, detail={"status": "error", "message": "Agify returned an invalid response"})
     if nation_res.status_code != 200:
-        raise HTTPException(status_code=502, detail={"status": "error", "message": "Nationalize API error"})
+        raise HTTPException(status_code=502, detail={"status": "error", "message": "Nationalize returned an invalid response"})
 
     return gender_res.json(), age_res.json(), nation_res.json()
 
@@ -61,8 +60,8 @@ def process_gender_data(data: dict) -> dict:
 
     if gender is None or sample_size == 0:
         raise HTTPException(
-            status_code=422,
-            detail={"status": "error", "message": "Insufficient gender data for this name"}
+            status_code=502,
+            detail={"status": "error", "message": "Genderize returned an invalid response"}
         )
 
     return {
@@ -78,8 +77,8 @@ def process_age_data(data: dict) -> dict:
 
     if age is None:
         raise HTTPException(
-            status_code=422,
-            detail={"status": "error", "message": "Insufficient age data for this name"}
+            status_code=502,
+            detail={"status": "error", "message": "Agify returned an invalid response"}
         )
 
     if age <= 12:
@@ -100,8 +99,8 @@ def process_nationality_data(data: dict) -> dict:
 
     if not countries:
         raise HTTPException(
-            status_code=422,
-            detail={"status": "error", "message": "No nationality data found for this name"}
+            status_code=502,
+            detail={"status": "error", "message": "Nationalize returned an invalid response"}
         )
 
     top_country = max(countries, key=lambda x: x.get("probability", 0))
