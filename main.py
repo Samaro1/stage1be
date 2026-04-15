@@ -35,7 +35,7 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 # ─── Database ─────────────────────────────────────────────────────────────────
 
-DATABASE_URL = os.getenv("DATABASE_URL", "postgres://stage1user:yourpassword@localhost/stage1db")
+DATABASE_URL = os.getenv("DATABASE_URL")
 
 register_tortoise(
     app,
