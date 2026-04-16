@@ -5,6 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from tortoise.contrib.fastapi import register_tortoise
 from pydantic import BaseModel
 from uuid6 import uuid7
+from uuid import UUID
 import os
 from dotenv import load_dotenv
 load_dotenv()
@@ -188,7 +189,14 @@ async def get_profile(id: str):
 
 @app.delete("/api/profiles/{id}")   
 async def delete_profile(id: str):
-    profile = await Profile.filter(id=id).first()
+    try:
+        valid_id = UUID(id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Invalid UUID format"}
+        )
+    profile = await Profile.filter(id=valid_id).first()
     if not profile:
         raise HTTPException(
             status_code=404,
