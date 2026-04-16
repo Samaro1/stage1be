@@ -37,6 +37,9 @@ app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
+if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgres://", 1)
+
 register_tortoise(
     app,
     db_url=DATABASE_URL,
