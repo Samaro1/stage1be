@@ -24,7 +24,7 @@ It accepts a name, enriches it using multiple external APIs, stores the result, 
 
 ## Setup Instructions 
 1. Clone the repository
-  git clone https://github.com/your-username/your-repo-name.git
+  git clone https://github.com/samaro1/stage1be
   cd stage1be
 2. Create virtual environment
   python3 -m venv venv
