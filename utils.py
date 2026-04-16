@@ -11,20 +11,26 @@ NATIONALIZE_URL = "https://api.nationalize.io"
 
 # Exception Handlers
 
-async def custom_http_exception_handler(request: Request, exc: HTTPException):
-    if isinstance(exc.detail, dict):
+async def custom_http_exception_handler(request: Request, exc: Exception):
+    if isinstance(exc, HTTPException):
+        if isinstance(exc.detail, dict):
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=exc.detail
+            )
+
         return JSONResponse(
             status_code=exc.status_code,
-            content=exc.detail
+            content={"status": "error", "message": str(exc.detail)}
         )
 
     return JSONResponse(
-        status_code=exc.status_code,
-        content={"status": "error", "message": str(exc.detail)}
+        status_code=500,
+        content={"status": "error", "message": "Internal server error"}
     )
 
 
-async def validation_exception_handler(request: Request, exc: RequestValidationError):
+async def validation_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=422,
         content={"status": "error", "message": "Name must be a string"}

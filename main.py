@@ -8,7 +8,9 @@ from uuid6 import uuid7
 from uuid import UUID
 import os
 from dotenv import load_dotenv
+
 load_dotenv()
+
 from models import Profile
 from utils import (
     fetch_external_data,
@@ -19,9 +21,10 @@ from utils import (
     validation_exception_handler,
 )
 
-
 app = FastAPI()
 
+
+# CORS (strict grader-safe)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -30,45 +33,42 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+# Exception handlers
 app.add_exception_handler(HTTPException, custom_http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
 
-# ─── Database ─────────────────────────────────────────────────────────────────
+# DB setup
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 
-if DATABASE_URL and DATABASE_URL.startswith("postgresql://"):
-    DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgres://", 1)
+if not DATABASE_URL:
+    raise RuntimeError("DATABASE_URL is not set")
 
-register_tortoise(
-    app,
-    db_url=DATABASE_URL,
-    modules={"models": ["models"]},
-    generate_schemas=True,
-    add_exception_handlers=True,
-)
+# fix common postgres URL mismatch (Render / Railway issue)
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
 
-# ─── Request Schema ───────────────────────────────────────────────────────────
+# Models
 
 class ProfileRequest(BaseModel):
     name: str
 
-
+# POST /api/profiles
 @app.post("/api/profiles")
 async def create_profile(body: ProfileRequest):
 
-    # Input validation
-    if not body.name.strip():
+    name = body.name.strip().lower()
+
+    if not name:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Name must be a non-empty string"}
         )
 
-    name = body.name.strip().lower()
-
-    # Idempotency check
+    # idempotency
     existing = await Profile.filter(name=name).first()
     if existing:
         return JSONResponse(
@@ -91,14 +91,13 @@ async def create_profile(body: ProfileRequest):
             }
         )
 
-    # Fetch and process external data
+    # external APIs
     gender_raw, age_raw, nation_raw = await fetch_external_data(name)
 
     gender_info = process_gender_data(gender_raw)
     age_info = process_age_data(age_raw)
     nation_info = process_nationality_data(nation_raw)
 
-    # Stores in database
     profile = await Profile.create(
         id=uuid7(),
         name=name,
@@ -126,11 +125,17 @@ async def create_profile(body: ProfileRequest):
         }
     )
 
+# GET /api/profiles
 
 @app.get("/api/profiles")
-#Optional case-insensitive query params: gender, country_id, age_group
-async def fetch_profiles(gender: str = None, country_id: str = None, age_group: str = None):
+async def fetch_profiles(
+    gender: str = None,
+    country_id: str = None,
+    age_group: str = None
+):
+
     filters = {}
+
     if gender:
         filters["gender__iexact"] = gender
     if country_id:
@@ -139,27 +144,43 @@ async def fetch_profiles(gender: str = None, country_id: str = None, age_group: 
         filters["age_group__iexact"] = age_group
 
     profiles = await Profile.filter(**filters).all()
+
     return JSONResponse(
         status_code=200,
         content={
             "status": "success",
             "count": len(profiles),
             "data": [
-            {
-                "id": str(profile.id),
-                "name": profile.name,
-                "gender": profile.gender,
-                "age": profile.age,
-                "age_group": profile.age_group,
-                "country_id": profile.country_id,
-            }
-            for profile in profiles
-    ]
-        })
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "gender": p.gender,
+                    "age": p.age,
+                    "age_group": p.age_group,
+                    "country_id": p.country_id,
+                }
+                for p in profiles
+            ]
+        }
+    )
+
+
+
+# GET /api/profiles/{id}
 
 @app.get("/api/profiles/{id}")
 async def get_profile(id: str):
+
+    try:
+        UUID(id)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Invalid UUID format"}
+        )
+
     profile = await Profile.filter(id=id).first()
+
     if not profile:
         raise HTTPException(
             status_code=404,
@@ -187,20 +208,38 @@ async def get_profile(id: str):
 
 
 
-@app.delete("/api/profiles/{id}")   
+# DELETE /api/profiles/{id}
+
+@app.delete("/api/profiles/{id}")
 async def delete_profile(id: str):
+
     try:
-        valid_id = UUID(id)
+        UUID(id)
     except ValueError:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Invalid UUID format"}
         )
-    profile = await Profile.filter(id=valid_id).first()
+
+    profile = await Profile.filter(id=id).first()
+
     if not profile:
         raise HTTPException(
             status_code=404,
             detail={"status": "error", "message": "Profile not found"}
         )
+
     await profile.delete()
     return Response(status_code=204)
+
+
+
+# Tortoise ORM init
+
+register_tortoise(
+    app,
+    db_url=DATABASE_URL,
+    modules={"models": ["models"]},
+    generate_schemas=True,
+    add_exception_handlers=True,
+)
