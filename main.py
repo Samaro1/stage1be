@@ -127,12 +127,24 @@ async def create_profile(body: ProfileRequest):
     )
 
 # GET /api/profiles
+#Support filtering by:
+# gender
+# age_group
+# country_id
+# min_age
+# max_age
+# min_gender_probability
+# min_country_probability
 
 @app.get("/api/profiles")
 async def fetch_profiles(
     gender: str = None,
     country_id: str = None,
-    age_group: str = None
+    age_group: str = None,
+    min_age: int = None,
+    max_age: int = None,
+    min_gender_probability: float = None,
+    min_country_probability: float = None
 ):
 
     filters = {}
@@ -143,6 +155,14 @@ async def fetch_profiles(
         filters["country_id__iexact"] = country_id
     if age_group:
         filters["age_group__iexact"] = age_group
+    if min_age is not None:
+        filters["age__gte"] = min_age
+    if max_age is not None:
+        filters["age__lte"] = max_age
+    if min_gender_probability is not None:
+        filters["gender_probability__gte"] = min_gender_probability
+    if min_country_probability is not None:
+        filters["country_probability__gte"] = min_country_probability
 
     profiles = await Profile.filter(**filters).all()
 
