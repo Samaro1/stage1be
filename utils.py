@@ -88,7 +88,6 @@ def process_gender_data(data: dict) -> dict:
     return {
         "gender": gender,
         "gender_probability": float(data.get("probability", 0.0)),
-        "sample_size": int(count),
     }
 
 
