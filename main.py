@@ -1,3 +1,4 @@
+from typing import Optional
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -56,6 +57,17 @@ if DATABASE_URL.startswith("postgresql+asyncpg://"):
 # Models
 class ProfileRequest(BaseModel):
     name: str
+
+
+ALLOWED_SORT_FIELDS = {
+    "age",
+    "gender_probability",
+    "country_probability",
+    "created_at",
+    "name",
+}
+
+
 
 # POST /api/profiles
 @app.post("/api/profiles")
@@ -136,56 +148,75 @@ async def create_profile(body: ProfileRequest):
 # min_gender_probability
 # min_country_probability
 
+#support sorting by:
+# sort_by → age | created_at | gender_probability
+# order  → asc | desc
 @app.get("/api/profiles")
 async def fetch_profiles(
-    gender: str = None,
-    country_id: str = None,
-    age_group: str = None,
-    min_age: int = None,
-    max_age: int = None,
-    min_gender_probability: float = None,
-    min_country_probability: float = None
+    gender: Optional[str] = None,
+    country_id: Optional[str] = None,
+    age_group: Optional[str] = None,
+    min_age: Optional[int] = None,
+    max_age: Optional[int] = None,
+    min_gender_probability: Optional[float] = None,
+    min_country_probability: Optional[float] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = "asc",
+    page: int = 1,
+    limit: int = 10,
 ):
+    # Validate sort params
+    if sort_by and sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(status_code=400, detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(ALLOWED_SORT_FIELDS)}"})
+    if order not in {"asc", "desc"}:
+        raise HTTPException(status_code=400, detail={"status": "error", "message": "order must be 'asc' or 'desc'"})
+    if limit > 50:
+        limit = 50
 
+    # Build filters
     filters = {}
+    if gender: filters["gender__iexact"] = gender
+    if country_id: filters["country_id__iexact"] = country_id
+    if age_group: filters["age_group__iexact"] = age_group
+    if min_age is not None: filters["age__gte"] = min_age
+    if max_age is not None: filters["age__lte"] = max_age
+    if min_gender_probability is not None: filters["gender_probability__gte"] = min_gender_probability
+    if min_country_probability is not None: filters["country_probability__gte"] = min_country_probability
 
-    if gender:
-        filters["gender__iexact"] = gender
-    if country_id:
-        filters["country_id__iexact"] = country_id
-    if age_group:
-        filters["age_group__iexact"] = age_group
-    if min_age is not None:
-        filters["age__gte"] = min_age
-    if max_age is not None:
-        filters["age__lte"] = max_age
-    if min_gender_probability is not None:
-        filters["gender_probability__gte"] = min_gender_probability
-    if min_country_probability is not None:
-        filters["country_probability__gte"] = min_country_probability
+    # Build queryset
+    queryset = Profile.filter(**filters)
+    if sort_by:
+        order_str = sort_by if order == "asc" else f"-{sort_by}"
+        queryset = queryset.order_by(order_str)
 
-    profiles = await Profile.filter(**filters).all()
+    #count first, then paginate
+    total = await queryset.count()
+    profiles = await queryset.offset((page - 1) * limit).limit(limit)
 
     return JSONResponse(
         status_code=200,
         content={
             "status": "success",
-            "count": len(profiles),
+            "page": page,
+            "limit": limit,
+            "total": total,
             "data": [
                 {
                     "id": str(p.id),
                     "name": p.name,
                     "gender": p.gender,
+                    "gender_probability": p.gender_probability,
                     "age": p.age,
                     "age_group": p.age_group,
                     "country_id": p.country_id,
+                    "country_name": p.country_name,
+                    "country_probability": p.country_probability,
+                    "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
                 }
                 for p in profiles
             ]
         }
     )
-
-
 
 # GET /api/profiles/{id}
 
