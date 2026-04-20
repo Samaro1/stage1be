@@ -3,10 +3,78 @@ from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import httpx
 import asyncio
+import re
 
 GENDERIZE_URL = "https://api.genderize.io"
 AGIFY_URL = "https://api.agify.io"
 NATIONALIZE_URL = "https://api.nationalize.io"
+
+COUNTRY_MAP = {
+    "tanzania": "TZ",
+    "nigeria": "NG",
+    "uganda": "UG",
+    "sudan": "SD",
+    "united states": "US",
+    "madagascar": "MG",
+    "south africa": "ZA",
+    "united kingdom": "GB",
+    "india": "IN",
+    "cameroon": "CM",
+    "mali": "ML",
+    "angola": "AO",
+    "kenya": "KE",
+    "zambia": "ZM",
+    "mozambique": "MZ",
+    "france": "FR",
+    "gabon": "GA",
+    "rwanda": "RW",
+    "namibia": "NA",
+    "dr congo": "CD",
+    "senegal": "SN",
+    "ghana": "GH",
+    "cape verde": "CV",
+    "republic of the congo": "CG",
+    "ethiopia": "ET",
+    "eritrea": "ER",
+    "morocco": "MA",
+    "malawi": "MW",
+    "brazil": "BR",
+    "australia": "AU",
+    "canada": "CA",
+    "tunisia": "TN",
+    "egypt": "EG",
+    "algeria": "DZ",
+    "libya": "LY",
+    "zimbabwe": "ZW",
+    "botswana": "BW",
+    "somalia": "SO",
+    "south sudan": "SS",
+    "burundi": "BI",
+    "liberia": "LR",
+    "guinea": "GN",
+    "guinea-bissau": "GW",
+    "sierra leone": "SL",
+    "togo": "TG",
+    "benin": "BJ",
+    "burkina faso": "BF",
+    "niger": "NE",
+    "chad": "TD",
+    "central african republic": "CF",
+    "equatorial guinea": "GQ",
+    "djibouti": "DJ",
+    "comoros": "KM",
+    "mauritius": "MU",
+    "seychelles": "SC",
+    "lesotho": "LS",
+    "eswatini": "SZ",
+    "gambia": "GM",
+    "mauritania": "MR",
+    "western sahara": "EH",
+    "china": "CN",
+    "japan": "JP",
+    "germany": "DE",
+    "sao tome and principe": "ST",
+}
 
 
 # Exception Handlers
@@ -141,3 +209,47 @@ def process_nationality_data(data: dict) -> dict:
         "country_id": country_id,
         "country_probability": float(probability or 0.0),
     }
+
+# "young males"                          → gender=male + min_age=16 + max_age=24
+# "females above 30"                     → gender=female + min_age=30
+# "people from angola"                   → country_id=AO
+# "adult males from kenya"               → gender=male + age_group=adult + country_id=KE
+# "male and female teenagers above 17"   → age_group=teenager + min_age=17
+def parse_natural_language(q: str) -> dict:
+    filters = {}
+    q_lower  = q.lower().strip()
+
+    #Gender
+    if "female" in q_lower or "women" in q_lower or "woman" in q_lower:
+        filters["gender"] = "female"
+    elif "male" in q_lower or "men" in q_lower or "man" in q_lower:
+        filters["gender"] = "male"
+    
+    #AGE GROUP 
+    if "child" in q_lower:
+        filters["age_group"] = "child"
+    elif "teenager" in q_lower:
+        filters["age_group"] = "teenager"
+    elif "adult" in q_lower:
+        filters["age_group"] = "adult"
+    elif "senior" in q_lower:
+        filters["age_group"] = "senior"
+
+    #Young, special case for age group + age
+    if "young" in q_lower:
+        filters["age__gte"] = 16
+        filters["age__lte"] = 24
+
+    #AGE ABOVE/BELOW PATTERNS 
+    age_above_match = re.search(r"(above|over|older than)\s+(\d+)", q_lower)
+    age_below_match = re.search(r"(below|under|younger than)\s+(\d+)", q_lower)
+    if age_above_match:
+        filters["age__gte"] = int(age_above_match.group(2))
+    if age_below_match:
+        filters["age__lte"] = int(age_below_match.group(2))
+
+    #COUNTRY
+    for country_name in sorted(COUNTRY_MAP.keys(), key=len, reverse=True):
+        if country_name in q_lower:
+            filters["country_id"] = COUNTRY_MAP[country_name]
+            break
