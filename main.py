@@ -1,4 +1,6 @@
 from typing import Optional
+from warnings import filters
+from warnings import filters
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
@@ -15,6 +17,7 @@ load_dotenv()
 from models import Profile
 from utils import (
     fetch_external_data,
+    parse_natural_language,
     process_gender_data,
     process_age_data,
     process_nationality_data,
@@ -137,6 +140,59 @@ async def create_profile(body: ProfileRequest):
             }
         }
     )
+
+@app.get("/api/profiles/search")
+async def search_profiles(
+    q: Optional[str] = None,
+    page: int = 1,
+    limit: int = 10,
+):
+    if not q or not q.strip():
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Query parameter 'q' must be a non-empty string"}
+        )
+
+    q = q.strip().lower()
+    filters = parse_natural_language(q)
+    if not filters:
+        return JSONResponse(
+        status_code=400,
+        content={"status": "error", "message": "Unable to interpret query"}
+    )
+
+    if limit > 50:
+        limit = 50
+
+    queryset = Profile.filter(**filters)
+    total = await queryset.count()
+    profiles = await queryset.offset((page - 1) * limit).limit(limit)
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "page": page,
+            "limit": limit,
+            "total": total,
+            "data": [
+                {
+                    "id": str(p.id),
+                    "name": p.name,
+                    "gender": p.gender,
+                    "gender_probability": p.gender_probability,
+                    "age": p.age,
+                    "age_group": p.age_group,
+                    "country_id": p.country_id,
+                    "country_name": p.country_name,
+                    "country_probability": p.country_probability,
+                    "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
+                }
+                for p in profiles
+            ]
+        }
+    )
+
 
 # GET /api/profiles
 #Support filtering by:
