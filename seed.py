@@ -8,21 +8,23 @@ from models import Profile
 
 load_dotenv()
 
-SEED_URL = "https://drive.google.com/file/d/1Up06dcS9OfUEnDj_u6OV_xTRntupFhPH/view"
+SEED_URL = "https://drive.google.com/uc?export=download&id=1Up06dcS9OfUEnDj_u6OV_xTRntupFhPH"
 # DATABASE_URL = os.getenv("DATABASE_URL")
 
 async def seed_database():
     DATABASE_URL = os.getenv("DATABASE_URL")
+
     if not DATABASE_URL:
         raise RuntimeError("DATABASE_URL is not set")
-    
-    #for tortoise
+
     if DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgres://", 1)
+
     if DATABASE_URL.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgres://", 1)
+
         await Tortoise.init(
-            db_url=DATABASE_URL, 
+            db_url=DATABASE_URL,
             modules={"models": ["models"]}
         )
         await Tortoise.generate_schemas()
