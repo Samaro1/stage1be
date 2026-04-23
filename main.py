@@ -1,6 +1,4 @@
 from typing import Optional
-from warnings import filters
-from warnings import filters
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
