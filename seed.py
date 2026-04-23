@@ -37,7 +37,7 @@ async def seed_database():
 
     async with httpx.AsyncClient(timeout=30) as client:
         try:
-            response = await client.get(SEED_URL)
+            response = await client.get(SEED_URL, follow_redirects=True)
             response.raise_for_status()
 
             # Debug response (important for Railway visibility)
