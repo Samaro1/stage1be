@@ -12,6 +12,7 @@ SEED_URL = "https://drive.google.com/uc?export=download&id=1Up06dcS9OfUEnDj_u6OV
 # DATABASE_URL = os.getenv("DATABASE_URL")
 
 async def seed_database():
+    print("=== SEED STARTED ===", flush=True)
     DATABASE_URL = os.getenv("DATABASE_URL")
 
     if not DATABASE_URL:
@@ -20,12 +21,12 @@ async def seed_database():
     if DATABASE_URL.startswith("postgresql://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgres://", 1)
 
-    if DATABASE_URL.startswith("postgresql+asyncpg://"):
+    elif DATABASE_URL.startswith("postgresql+asyncpg://"):
         DATABASE_URL = DATABASE_URL.replace("postgresql+asyncpg://", "postgres://", 1)
 
         await Tortoise.init(
-            db_url=DATABASE_URL,
-            modules={"models": ["models"]}
+        db_url=DATABASE_URL,
+        modules={"models": ["models"]}
         )
         await Tortoise.generate_schemas()
 
