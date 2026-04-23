@@ -40,7 +40,7 @@ async def seed_database():
             response = await client.get(SEED_URL, follow_redirects=True)
             response.raise_for_status()
 
-            # Debug response (important for Railway visibility)
+            # Debug response
             print("Response preview:", response.text[:200], flush=True)
 
             try:

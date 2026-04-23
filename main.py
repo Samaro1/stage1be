@@ -62,12 +62,25 @@ class ProfileRequest(BaseModel):
 
 ALLOWED_SORT_FIELDS = {
     "age",
-    "gender_probability",
-    "country_probability",
     "created_at",
-    "name",
+    "gender_probability",
 }
 
+
+def validate_pagination(page: int, limit: int) -> tuple[int, int]:
+    if page < 1:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": "page must be a positive integer"}
+        )
+    if limit < 1:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": "limit must be a positive integer"}
+        )
+    if limit > 50:
+        limit = 50
+    return page, limit
 
 
 # POST /api/profiles
@@ -151,16 +164,15 @@ async def search_profiles(
             detail={"status": "error", "message": "Query parameter 'q' must be a non-empty string"}
         )
 
+    page, limit = validate_pagination(page, limit)
+
     q = q.strip().lower()
     filters = parse_natural_language(q)
     if not filters:
         return JSONResponse(
-        status_code=400,
-        content={"status": "error", "message": "Unable to interpret query"}
-    )
-
-    if limit > 50:
-        limit = 50
+            status_code=400,
+            content={"status": "error", "message": "Unable to interpret query"}
+        )
 
     queryset = Profile.filter(**filters)
     total = await queryset.count()
@@ -219,23 +231,76 @@ async def fetch_profiles(
     page: int = 1,
     limit: int = 10,
 ):
-    # Validate sort params
+    page, limit = validate_pagination(page, limit)
+
     if sort_by and sort_by not in ALLOWED_SORT_FIELDS:
-        raise HTTPException(status_code=400, detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(ALLOWED_SORT_FIELDS)}"})
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"}
+        )
     if order not in {"asc", "desc"}:
-        raise HTTPException(status_code=400, detail={"status": "error", "message": "order must be 'asc' or 'desc'"})
-    if limit > 50:
-        limit = 50
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": "order must be 'asc' or 'desc'"}
+        )
 
     # Build filters
     filters = {}
-    if gender: filters["gender__iexact"] = gender
-    if country_id: filters["country_id__iexact"] = country_id
-    if age_group: filters["age_group__iexact"] = age_group
-    if min_age is not None: filters["age__gte"] = min_age
-    if max_age is not None: filters["age__lte"] = max_age
-    if min_gender_probability is not None: filters["gender_probability__gte"] = min_gender_probability
-    if min_country_probability is not None: filters["country_probability__gte"] = min_country_probability
+    if gender is not None:
+        if not gender.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "gender must be a non-empty string"}
+            )
+        filters["gender__iexact"] = gender.strip()
+
+    if country_id is not None:
+        if not country_id.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "country_id must be a non-empty string"}
+            )
+        filters["country_id__iexact"] = country_id.strip()
+
+    if age_group is not None:
+        if not age_group.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "age_group must be a non-empty string"}
+            )
+        filters["age_group__iexact"] = age_group.strip()
+
+    if min_age is not None:
+        if min_age < 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_age must be a non-negative integer"}
+            )
+        filters["age__gte"] = min_age
+
+    if max_age is not None:
+        if max_age < 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "max_age must be a non-negative integer"}
+            )
+        filters["age__lte"] = max_age
+
+    if min_gender_probability is not None:
+        if not 0 <= min_gender_probability <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_gender_probability must be between 0 and 1"}
+            )
+        filters["gender_probability__gte"] = min_gender_probability
+        
+    if min_country_probability is not None:
+        if not 0 <= min_country_probability <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_country_probability must be between 0 and 1"}
+            )
+        filters["country_probability__gte"] = min_country_probability
 
     # Build queryset
     queryset = Profile.filter(**filters)

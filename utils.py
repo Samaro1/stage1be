@@ -101,7 +101,7 @@ async def custom_http_exception_handler(request: Request, exc: Exception):
 async def validation_exception_handler(request: Request, exc: Exception):
     return JSONResponse(
         status_code=422,
-        content={"status": "error", "message": "Name must be a string"}
+        content={"status": "error", "message": "Invalid query parameters"}
     )
 
 # External API Fetch
@@ -216,40 +216,48 @@ def process_nationality_data(data: dict) -> dict:
 # "adult males from kenya"               → gender=male + age_group=adult + country_id=KE
 # "male and female teenagers above 17"   → age_group=teenager + min_age=17
 def parse_natural_language(q: str) -> dict:
-    filters = {}
-    q_lower  = q.lower().strip()
+    filters: dict[str, object] = {}
+    q_lower = q.lower().strip()
+    tokens = re.findall(r"\w+", q_lower)
+    token_set = set(tokens)
 
-    #Gender
-    if "female" in q_lower or "women" in q_lower or "woman" in q_lower:
+    # Gender detection
+    female_tokens = {"female", "females", "woman", "women"}
+    male_tokens = {"male", "males", "man", "men"}
+    found_female = bool(token_set & female_tokens)
+    found_male = bool(token_set & male_tokens)
+    if found_female and not found_male:
         filters["gender"] = "female"
-    elif "male" in q_lower or "men" in q_lower or "man" in q_lower:
+    elif found_male and not found_female:
         filters["gender"] = "male"
-    
-    #AGE GROUP 
-    if "child" in q_lower:
+
+    # Age group detection
+    if "child" in q_lower or "children" in q_lower:
         filters["age_group"] = "child"
-    elif "teenager" in q_lower:
+    elif "teenager" in q_lower or "teenagers" in q_lower or "teen" in token_set or "teens" in token_set:
         filters["age_group"] = "teenager"
-    elif "adult" in q_lower:
+    elif "adult" in q_lower or "adults" in q_lower:
         filters["age_group"] = "adult"
-    elif "senior" in q_lower:
+    elif "senior" in q_lower or "seniors" in q_lower or "elderly" in q_lower:
         filters["age_group"] = "senior"
 
-    #Young, special case for age group + age
+    # Young range mapping
     if "young" in q_lower:
-        filters["age__gte"] = 16
-        filters["age__lte"] = 24
+        filters.setdefault("age__gte", 16)
+        filters.setdefault("age__lte", 24)
 
-    #AGE ABOVE/BELOW PATTERNS 
-    age_above_match = re.search(r"(above|over|older than)\s+(\d+)", q_lower)
-    age_below_match = re.search(r"(below|under|younger than)\s+(\d+)", q_lower)
+    # Age above/below patterns
+    age_above_match = re.search(r"(?:above|over|older than)\s+(\d+)", q_lower)
+    age_below_match = re.search(r"(?:below|under|younger than)\s+(\d+)", q_lower)
     if age_above_match:
-        filters["age__gte"] = int(age_above_match.group(2))
+        filters["age__gte"] = int(age_above_match.group(1))
     if age_below_match:
-        filters["age__lte"] = int(age_below_match.group(2))
+        filters["age__lte"] = int(age_below_match.group(1))
 
-    #COUNTRY
+    # Country detection
     for country_name in sorted(COUNTRY_MAP.keys(), key=len, reverse=True):
         if country_name in q_lower:
             filters["country_id"] = COUNTRY_MAP[country_name]
             break
+
+    return filters
