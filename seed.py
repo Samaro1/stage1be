@@ -62,8 +62,7 @@ async def seed_database():
                     country_probability=profile["country_probability"],
                 )
                 created += 1
-
-    print(f"Done. Created: {created}, Skipped: {skipped}")
+            print(f"Seeding completed: {created} profiles created, {skipped} profiles skipped.")
     await Tortoise.close_connections()
 
 
