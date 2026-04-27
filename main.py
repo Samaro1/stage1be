@@ -1,8 +1,10 @@
+from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
+import httpx
 from tortoise.contrib.fastapi import register_tortoise
 from pydantic import BaseModel
 from uuid6 import uuid7
@@ -11,7 +13,7 @@ import os
 from dotenv import load_dotenv
 import secrets
 from fastapi.responses import RedirectResponse
-
+from models import Users, RefreshToken
 
 load_dotenv()
 
@@ -24,10 +26,13 @@ from utils import (
     process_nationality_data,
     custom_http_exception_handler,
     validation_exception_handler,
+    generate_refresh_token,
+    create_access_token,
 )
 
 app = FastAPI()
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 
 # CORS (strict grader-safe)
@@ -38,7 +43,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
+OAUTH_STATES = {}
 
 # Exception handlers
 app.add_exception_handler(HTTPException, custom_http_exception_handler)
@@ -73,6 +78,8 @@ ALLOWED_SORT_FIELDS = {
 @app.get("/auth/github")
 async def github_login():
     state = secrets.token_urlsafe(32)
+    OAUTH_STATES[state] = True
+
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
@@ -80,7 +87,104 @@ async def github_login():
         f"&scope=user:email"
         f"&state={state}"
     )
+
     return RedirectResponse(url=github_auth_url)
+
+@app.get("/auth/github/callback")
+async def github_callback(code: str, state: str):
+
+    #Validate state
+    if state not in OAUTH_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Invalid state"}
+        )
+    del OAUTH_STATES[state]
+
+    async with httpx.AsyncClient() as client:
+
+        #Exchange code for GitHub access token
+        token_response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": GITHUB_REDIRECT_URI,
+            },
+            headers={"Accept": "application/json"}
+        )
+
+        token_data = token_response.json()
+        github_token = token_data.get("access_token")
+
+        if not github_token:
+            raise HTTPException(
+                status_code=502,
+                detail={"status": "error", "message": "Failed to obtain GitHub access token"}
+            )
+
+        #Fetch GitHub user profile
+        user_response = await client.get(
+            "https://api.github.com/user",
+            headers={
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/json"
+            }
+        )
+        user_data = user_response.json()
+
+        user_github_id = str(user_data.get("id"))
+        user_name = user_data.get("login")
+        user_avatar_url = user_data.get("avatar_url")
+
+        #Fetch email
+        email_response = await client.get(
+            "https://api.github.com/user/emails",
+            headers={"Authorization": f"Bearer {github_token}"}
+        )
+
+        emails = email_response.json()
+        primary_email = next((e["email"] for e in emails if e.get("primary")), None)
+
+    #Create or get user
+    github_user, _ = await Users.get_or_create(
+        github_id=user_github_id,
+        defaults={
+            "id": uuid7(),
+            "username": user_name,
+            "email": primary_email,
+            "avatar_url": user_avatar_url,
+            "role": "analyst",
+            "is_active": True,
+            "last_login_at": datetime.now(timezone.utc)
+        }
+    )
+
+    #Generate tokens
+    access_token = create_access_token(
+        user_id=str(github_user.id),
+        role=github_user.role
+    )
+    refresh_token = generate_refresh_token()
+
+    #Store refresh token
+    await RefreshToken.create(
+        id=uuid7(),
+        user=github_user,
+        token=refresh_token,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
+    )
+
+    #Return response
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }
+    )
 
 def validate_pagination(page: int, limit: int) -> tuple[int, int]:
     if page < 1:

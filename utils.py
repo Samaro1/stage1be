@@ -280,17 +280,21 @@ def create_access_token(user_id: str, role: str) -> str:
     payload = {
         "sub": user_id,
         "role": role,
+        "iat": datetime.now(timezone.utc),
         "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     }
-    return jwt.encode(payload, JWT_SECRET or "", algorithm=ALGORITHM)
+    return jwt.encode(payload, JWT_SECRET, algorithm=ALGORITHM)
 
 
-def decode_access_token(token: str) -> Optional[dict]:
+def decode_access_token(token: str) -> dict:
     try:
-        payload = jwt.decode(token, JWT_SECRET or "", algorithms=[ALGORITHM])
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[ALGORITHM])
         return payload
     except JWTError:
-        return None
+        raise HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Invalid or expired token"}
+        )
 
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(64)
