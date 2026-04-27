@@ -9,6 +9,9 @@ from uuid6 import uuid7
 from uuid import UUID
 import os
 from dotenv import load_dotenv
+import secrets
+from fastapi.responses import RedirectResponse
+
 
 load_dotenv()
 
@@ -24,7 +27,8 @@ from utils import (
 )
 
 app = FastAPI()
-
+GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
+GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 
 # CORS (strict grader-safe)
 app.add_middleware(
@@ -66,6 +70,17 @@ ALLOWED_SORT_FIELDS = {
     "gender_probability",
 }
 
+@app.get("/auth/github")
+async def github_login():
+    state = secrets.token_urlsafe(32)
+    github_auth_url = (
+        f"https://github.com/login/oauth/authorize"
+        f"?client_id={GITHUB_CLIENT_ID}"
+        f"&redirect_uri={GITHUB_REDIRECT_URI}"
+        f"&scope=user:email"
+        f"&state={state}"
+    )
+    return RedirectResponse(url=github_auth_url)
 
 def validate_pagination(page: int, limit: int) -> tuple[int, int]:
     if page < 1:
