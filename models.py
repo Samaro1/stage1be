@@ -16,13 +16,28 @@ class Profile(Model):
     class Meta:
         table = "profiles"
 
-# id                     UUID v7            Primary key
-# name                   VARCHAR + UNIQUE   Person's full name
-# gender                 VARCHAR            "male" or "female"
-# gender_probability     FLOAT              Confidence score
-# age                    INT                Exact age
-# age_group              VARCHAR            child, teenager, adult, senior
-# country_id             VARCHAR(2)         ISO code (NG, BJ, etc.)
-# country_name           VARCHAR            Full country name
-# country_probability    FLOAT              Confidence score
-# created_at             TIMESTAMP          Auto-generated
+
+class Users(Model):
+    id = fields.UUIDField(pk=True)
+    github_id = fields.CharField(max_length=255, unique=True)
+    username = fields.CharField(max_length=255)
+    email = fields.CharField(max_length=255, null=True)
+    avatar_url = fields.CharField(max_length=255, null=True)
+    role = fields.CharField(max_length=50, default="analyst")
+    is_active = fields.BooleanField(default=True)
+    last_login_at = fields.DatetimeField(null=True)
+    created_at = fields.DatetimeField(auto_now_add=True)
+
+    class Meta:
+        table = "users"
+
+class RefreshToken(Model):
+    id = fields.UUIDField(pk=True)
+    user = fields.ForeignKeyField("models.Users", related_name="refresh_tokens")
+    token = fields.CharField(max_length=512, unique=True)
+    is_revoked = fields.BooleanField(default=False)
+    created_at = fields.DatetimeField(auto_now_add=True)
+    expires_at = fields.DatetimeField()
+
+    class Meta:
+        table = "refresh_tokens"
