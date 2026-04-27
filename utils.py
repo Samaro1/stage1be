@@ -1,9 +1,17 @@
+from typing import Optional
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import httpx
 import asyncio
 import re
+from jose import jwt, JWTError
+from datetime import datetime, timezone, timedelta
+import secrets
+import os
+
+
+
 
 GENDERIZE_URL = "https://api.genderize.io"
 AGIFY_URL = "https://api.agify.io"
@@ -261,3 +269,28 @@ def parse_natural_language(q: str) -> dict:
             break
 
     return filters
+
+JWT_SECRET = os.getenv("JWT_SECRET", "fallback_secret_for_dev")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 3
+REFRESH_TOKEN_EXPIRE_MINUTES = 5
+
+##ACCESS TOKEN UTILS 
+def create_access_token(user_id: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    }
+    return jwt.encode(payload, JWT_SECRET or "", algorithm=ALGORITHM)
+
+
+def decode_access_token(token: str) -> Optional[dict]:
+    try:
+        payload = jwt.decode(token, JWT_SECRET or "", algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        return None
+
+def generate_refresh_token() -> str:
+    return secrets.token_urlsafe(64)
