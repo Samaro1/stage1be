@@ -193,7 +193,7 @@ def process_age_data(data: dict) -> dict:
         "age_group": age_group,
     }
 
-
+COUNTRY_CODE_TO_NAME = {v: k.title() for k, v in COUNTRY_MAP.items()}
 def process_nationality_data(data: dict) -> dict:
     countries = data.get("country")
 
@@ -216,6 +216,7 @@ def process_nationality_data(data: dict) -> dict:
 
     return {
         "country_id": country_id,
+        "country_name": COUNTRY_CODE_TO_NAME.get(country_id, country_id),
         "country_probability": float(probability or 0.0),
     }
 
