@@ -189,12 +189,18 @@ async def github_callback(code: str, state: str):
 @app.get("/auth/refresh")
 async def refresh_authorization(refresh_token: str):
     
-    token_record = await RefreshToken.filter(token=refresh_token, is_revoked=False).first()
+    token_record = await RefreshToken.filter(token=refresh_token).first()
 
     if not token_record:
         raise HTTPException(
             status_code=401,
             detail={"status": "error", "message": "Invalid refresh token"}
+        )
+    
+    if token_record.is_revoked:
+        raise HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Refresh token has been revoked"}
         )
 
     if token_record.expires_at < datetime.now(timezone.utc):
@@ -204,6 +210,12 @@ async def refresh_authorization(refresh_token: str):
         )
 
     user = await token_record.user
+
+    if not user or not user.is_active:
+        return HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "User is inactive"}
+        )
 
     # Revoke old refresh token
     token_record.is_revoked = True
