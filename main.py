@@ -17,8 +17,9 @@ from models import Users, RefreshToken
 import math
 import io
 import csv
+from collections import defaultdict
+import time
 
-load_dotenv()
 
 from models import Profile
 from utils import (
@@ -37,10 +38,11 @@ from utils import (
 )
 
 app = FastAPI()
+load_dotenv()
 GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
-
+rate_limit_store=defaultdict(list)
 # CORS (strict grader-safe)
 app.add_middleware(
     CORSMiddleware,
@@ -80,6 +82,65 @@ ALLOWED_SORT_FIELDS = {
     "created_at",
     "gender_probability",
 }
+
+@app.middleware("http")
+async def rate_limit_middleware(request: Request, call_next):
+    now= time.time()
+    path= request.url.path
+
+    #Identify user, fall back to IP if no authentication
+    auth_header = request.headers.get("authorization")
+
+    if auth_header and auth_header.startswith("Bearer "):
+        identifier = auth_header.split(" ")[1]
+    else:
+        identifier = request.client.host if request.client else "unknown"
+    
+    key = f"{identifier}:{path}"
+
+    # Determine limit
+    if path.startswith("/auth"):
+        limit = 10
+    else:
+        limit = 60
+
+    window = 60  # seconds
+
+    requests = rate_limit_store[key]
+
+    # Remove expired timestamps
+    rate_limit_store[key] = [
+        timestamp for timestamp in requests
+        if now - timestamp < window
+    ]
+
+    if len(rate_limit_store[key]) >= limit:
+        return JSONResponse(
+            status_code=429,
+            content={"status": "error", "message": "Too many requests"}
+        )
+
+    rate_limit_store[key].append(now)
+
+    response = await call_next(request)
+    return response
+
+@app.middleware("http")
+async def logging_middleware(request: Request, call_next):
+    start_time = time.time()
+
+    response = await call_next(request)
+
+    process_time = time.time() - start_time
+
+    print({
+        "method": request.method,
+        "path": request.url.path,
+        "status_code": response.status_code,
+        "response_time_ms": round(process_time * 1000, 2)
+    })
+
+    return response
 
 @app.middleware("http")
 async def api_version_middleware(request: Request, call_next):
@@ -418,7 +479,8 @@ async def search_profiles(
     total = await queryset.count()
     profiles = await queryset.offset((page - 1) * limit).limit(limit)
 
-    total_pages, links = build_pagination_links(request, page, limit, total)
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+    links = build_pagination_links(request, page, limit, total_pages)
 
     return JSONResponse(
         status_code=200,
@@ -757,7 +819,7 @@ async def fetch_profiles(
     
     #rows
     for p in profiles:
-        writer.writerows([
+        writer.writerow([
             str(p.id),
             p.name,
             p.gender,

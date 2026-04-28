@@ -361,16 +361,17 @@ def build_pagination_links(request: Request, page: int, limit: int, total_pages:
     query_params = dict(request.query_params)
 
     def make_url(new_page):
-        params= query_params.copy()
-        params["page"]= new_page
-        params["limit"]= str(limit)
+        params = query_params.copy()
+        params["page"] = new_page
+        params["limit"] = str(limit)
 
-        query_string= "&".join(f"{key}={value}" for key, value in params.items())
+        query_string = "&".join(f"{key}={value}" for key, value in params.items())
         if query_string:      
             return f"{base_url}?{query_string}"
-        
-        return{
-            "self": make_url(page),
-            "next": make_url(page + 1) if page < total_pages else None,
-            "prev": make_url(page - 1) if page > 1 else None
-        }
+        return base_url
+    
+    return {
+        "self": make_url(page),
+        "next": make_url(page + 1) if page < total_pages else None,
+        "prev": make_url(page - 1) if page > 1 else None
+    }
