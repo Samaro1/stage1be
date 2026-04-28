@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Response, Body
+from fastapi import FastAPI, HTTPException, Response, Body, Depends,Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -28,6 +28,8 @@ from utils import (
     validation_exception_handler,
     generate_refresh_token,
     create_access_token,
+    require_admin,
+    require_analyst
 )
 
 app = FastAPI()
@@ -74,6 +76,34 @@ ALLOWED_SORT_FIELDS = {
     "created_at",
     "gender_probability",
 }
+
+@app.middleware("http")
+async def api_version_middleware(request: Request, call_next):
+
+    #only to be enforced for api routes 
+    if request.url.path.startswith("/api"):
+        version= request.headers.get("X-API-Version")
+
+    if not version:
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "API version header required"
+            }
+        )
+    
+    if version != "1":
+        return JSONResponse(
+            status_code=400,
+            content={
+                "status": "error",
+                "message": "Invalid API Version"
+            }
+        )
+    
+    return await call_next(request)
+
 
 @app.get("/auth/github")
 async def github_login():
@@ -213,7 +243,7 @@ async def refresh_authorization(refresh_token: str):
 
     if not user or not user.is_active:
         return HTTPException(
-            status_code=401,
+            status_code=403,
             detail={"status": "error", "message": "User is inactive"}
         )
 
@@ -257,7 +287,7 @@ async def logout(refresh_token: str = Body(..., embed=True)):
 
     if token_record.is_revoked:
         return HTTPException(
-            status_code=401,
+            status_code=400,
             detail={"status": "error", "message": "Token already revoked"}
         )
     
@@ -287,7 +317,8 @@ def validate_pagination(page: int, limit: int) -> tuple[int, int]:
 
 # POST /api/profiles
 @app.post("/api/profiles")
-async def create_profile(body: ProfileRequest):
+async def create_profile(body: ProfileRequest,
+                         user: Users = Depends(require_admin)):
 
     name = body.name.strip().lower()
 
@@ -356,6 +387,7 @@ async def create_profile(body: ProfileRequest):
 
 @app.get("/api/profiles/search")
 async def search_profiles(
+    user: Users = Depends(require_analyst),
     q: Optional[str] = None,
     page: int = 1,
     limit: int = 10,
@@ -421,6 +453,7 @@ async def search_profiles(
 # order  → asc | desc
 @app.get("/api/profiles")
 async def fetch_profiles(
+    user: Users= Depends(require_analyst),
     gender: Optional[str] = None,
     country_id: Optional[str] = None,
     age_group: Optional[str] = None,
@@ -542,7 +575,8 @@ async def fetch_profiles(
 # GET /api/profiles/{id}
 
 @app.get("/api/profiles/{id}")
-async def get_profile(id: str):
+async def get_profile(id: str,
+                      user: Users= Depends(require_analyst)):
 
     try:
         UUID(id)
@@ -584,7 +618,8 @@ async def get_profile(id: str):
 # DELETE /api/profiles/{id}
 
 @app.delete("/api/profiles/{id}")
-async def delete_profile(id: str):
+async def delete_profile(id: str,
+                         user: Users= Depends(require_admin)):
 
     try:
         UUID(id)

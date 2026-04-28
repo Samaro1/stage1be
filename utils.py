@@ -1,5 +1,5 @@
 from typing import Optional
-from fastapi import HTTPException, Request
+from fastapi import HTTPException, Request, Depends
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 import httpx
@@ -9,7 +9,8 @@ from jose import jwt, JWTError
 from datetime import datetime, timezone, timedelta
 import secrets
 import os
-
+from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
+from models import Users
 
 
 
@@ -298,3 +299,57 @@ def decode_access_token(token: str) -> dict:
 
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(64)
+
+
+security= HTTPBearer()
+async def get_current_user(credentials: HTTPAuthorizationCredentials= Depends(security)):
+    token= credentials.credentials
+    payload= decode_access_token(token)
+
+    user_id= payload.get("sub")
+    role= payload.get("role")
+
+    if not user_id:
+        return HTTPException(
+            status_code=401,
+            detail={
+                "status": "error",
+                "message": "Invalid token payload"
+            }
+        )
+    
+    user= await Users.filter(id= user_id).first()
+
+    if not user:
+        return HTTPException(
+            status_code=401,
+            detail={
+                "status": "error",
+                "message": "User not found"
+            }
+        )
+    
+    if not user.is_active:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "status": "error",
+                "message": "User is inactive"
+            }
+        )
+    
+    return user
+
+async def require_admin(user: Users = Depends(get_current_user)):
+    if user.role != "admin":
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "status": "error",
+                "message": "Admin access required"
+            }
+        )
+    return user
+
+async def require_analyst(user: Users= Depends(get_current_user)):
+    return user
