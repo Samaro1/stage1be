@@ -462,7 +462,7 @@ async def search_profiles(
 # sort_by → age | created_at | gender_probability
 # order  → asc | desc
 @app.get("/api/profiles")
-async def fetch_profiles(
+async def export_profiles(
     request: Request,
     user: Users= Depends(require_analyst),
     gender: Optional[str] = None,
@@ -760,7 +760,7 @@ async def fetch_profiles(
         writer.writerows([
             str(p.id),
             p.name,
-            p.gender
+            p.gender,
             p.gender_probability,
             p.age,
             p.age_group,
