@@ -186,6 +186,53 @@ async def github_callback(code: str, state: str):
         }
     )
 
+@app.get("/auth/refresh")
+async def refresh_authorization(refresh_token: str):
+    
+    token_record = await RefreshToken.filter(token=refresh_token, is_revoked=False).first()
+
+    if not token_record:
+        raise HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Invalid refresh token"}
+        )
+
+    if token_record.expires_at < datetime.now(timezone.utc):
+        raise HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Refresh token has expired"}
+        )
+
+    user = await token_record.user
+
+    # Revoke old refresh token
+    token_record.is_revoked = True
+    await token_record.save()
+
+    # Generate new tokens
+    new_access_token = create_access_token(
+        user_id=str(user.id),
+        role=user.role
+    )
+    new_refresh_token = generate_refresh_token()
+
+    # Store new refresh token
+    await RefreshToken.create(
+        id=uuid7(),
+        user=user,
+        token=new_refresh_token,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
+    )
+
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "access_token": new_access_token,
+            "refresh_token": new_refresh_token
+        }
+    )
+
 def validate_pagination(page: int, limit: int) -> tuple[int, int]:
     if page < 1:
         raise HTTPException(
