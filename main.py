@@ -14,6 +14,7 @@ from dotenv import load_dotenv
 import secrets
 from fastapi.responses import RedirectResponse
 from models import Users, RefreshToken
+import math
 
 load_dotenv()
 
@@ -29,7 +30,8 @@ from utils import (
     generate_refresh_token,
     create_access_token,
     require_admin,
-    require_analyst
+    require_analyst,
+    build_pagination_links
 )
 
 app = FastAPI()
@@ -387,6 +389,7 @@ async def create_profile(body: ProfileRequest,
 
 @app.get("/api/profiles/search")
 async def search_profiles(
+    request: Request,
     user: Users = Depends(require_analyst),
     q: Optional[str] = None,
     page: int = 1,
@@ -399,9 +402,10 @@ async def search_profiles(
         )
 
     page, limit = validate_pagination(page, limit)
+    
 
     q = q.strip().lower()
-    filters = parse_natural_language(q)
+    filters = parse_natural_language(q) or {}
     if not filters:
         return JSONResponse(
             status_code=400,
@@ -412,6 +416,8 @@ async def search_profiles(
     total = await queryset.count()
     profiles = await queryset.offset((page - 1) * limit).limit(limit)
 
+    total_pages, links = build_pagination_links(request, page, limit, total)
+
     return JSONResponse(
         status_code=200,
         content={
@@ -419,6 +425,8 @@ async def search_profiles(
             "page": page,
             "limit": limit,
             "total": total,
+            "total_pages": total_pages,
+            "links": links,
             "data": [
                 {
                     "id": str(p.id),
@@ -453,6 +461,7 @@ async def search_profiles(
 # order  → asc | desc
 @app.get("/api/profiles")
 async def fetch_profiles(
+    request: Request,
     user: Users= Depends(require_analyst),
     gender: Optional[str] = None,
     country_id: Optional[str] = None,
@@ -547,6 +556,9 @@ async def fetch_profiles(
     total = await queryset.count()
     profiles = await queryset.offset((page - 1) * limit).limit(limit)
 
+    total_pages= math.ceil(total / limit) if total > 0 else 1
+    links= build_pagination_links(request,page, limit, total_pages)
+
     return JSONResponse(
         status_code=200,
         content={
@@ -554,6 +566,8 @@ async def fetch_profiles(
             "page": page,
             "limit": limit,
             "total": total,
+            "total_pages": total_pages,
+            "links": links,
             "data": [
                 {
                     "id": str(p.id),

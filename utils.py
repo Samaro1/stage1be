@@ -73,7 +73,7 @@ COUNTRY_MAP = {
     "djibouti": "DJ",
     "comoros": "KM",
     "mauritius": "MU",
-    "seychelles": "SC",
+    "seychelles": "BSC",
     "lesotho": "LS",
     "eswatini": "SZ",
     "gambia": "GM",
@@ -271,6 +271,8 @@ def parse_natural_language(q: str) -> dict:
 
     return filters
 
+
+
 JWT_SECRET = os.getenv("JWT_SECRET", "fallback_secret_for_dev")
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 3
@@ -307,7 +309,6 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials= Depends(se
     payload= decode_access_token(token)
 
     user_id= payload.get("sub")
-    role= payload.get("role")
 
     if not user_id:
         return HTTPException(
@@ -353,3 +354,23 @@ async def require_admin(user: Users = Depends(get_current_user)):
 
 async def require_analyst(user: Users= Depends(get_current_user)):
     return user
+
+def build_pagination_links(request: Request, page: int, limit: int, total_pages: int):
+    base_url = str(request.url).split("?")[0]
+
+    query_params = dict(request.query_params)
+
+    def make_url(new_page):
+        params= query_params.copy()
+        params["page"]= new_page
+        params["limit"]= str(limit)
+
+        query_string= "&".join(f"{key}={value}" for key, value in params.items())
+        if query_string:      
+            return f"{base_url}?{query_string}"
+        
+        return{
+            "self": make_url(page),
+            "next": make_url(page + 1) if page < total_pages else None,
+            "prev": make_url(page - 1) if page > 1 else None
+        }
