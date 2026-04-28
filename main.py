@@ -857,23 +857,30 @@ class CLICallbackRequest(BaseModel):
     code_verifier: str
     redirect_uri: str
 
+
 @app.post("/auth/cli/callback")
 async def cli_callback(body: CLICallbackRequest):
 
     async with httpx.AsyncClient() as client:
 
-        # Exchange code for GitHub access token with PKCE
+        # Exchange code for GitHub access token (PKCE)
         token_response = await client.post(
             "https://github.com/login/oauth/access_token",
-            json={
-                "client_id": GITHUB_CLIENT_ID,
-                "client_secret": GITHUB_CLIENT_SECRET,
-                "code": body.code,
-                "redirect_uri": body.redirect_uri,
-                "code_verifier": body.code_verifier,
-            },
+        json={
+            "client_id": GITHUB_CLIENT_ID,
+            "client_secret": GITHUB_CLIENT_SECRET,
+            "code": body.code,
+            "redirect_uri": body.redirect_uri,
+            "code_verifier": body.code_verifier,
+        },
             headers={"Accept": "application/json"}
         )
+
+        if token_response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail={"status": "error", "message": "GitHub token exchange failed"}
+            )
 
         token_data = token_response.json()
         github_token = token_data.get("access_token")
@@ -884,14 +891,18 @@ async def cli_callback(body: CLICallbackRequest):
                 detail={"status": "error", "message": "Failed to obtain GitHub access token"}
             )
 
-        # Fetch GitHub user profile
+        # Fetch GitHub user
         user_response = await client.get(
             "https://api.github.com/user",
-            headers={
-                "Authorization": f"Bearer {github_token}",
-                "Accept": "application/json"
-            }
+            headers={"Authorization": f"Bearer {github_token}"}
         )
+
+        if user_response.status_code != 200:
+            raise HTTPException(
+                status_code=502,
+                detail={"status": "error", "message": "Failed to fetch GitHub user"}
+            )
+
         user_data = user_response.json()
 
         user_github_id = str(user_data.get("id"))
@@ -903,10 +914,17 @@ async def cli_callback(body: CLICallbackRequest):
             "https://api.github.com/user/emails",
             headers={"Authorization": f"Bearer {github_token}"}
         )
-        emails = email_response.json()
-        primary_email = next((e["email"] for e in emails if e.get("primary")), None)
 
-    # Create or update user
+        primary_email = None
+        if email_response.status_code == 200:
+            emails = email_response.json()
+            if isinstance(emails, list):
+                primary_email = next(
+                    (e.get("email") for e in emails if e.get("primary")),
+                    None
+                )
+
+    # Create/update user
     github_user, created = await Users.get_or_create(
         github_id=user_github_id,
         defaults={
@@ -919,20 +937,20 @@ async def cli_callback(body: CLICallbackRequest):
             "last_login_at": datetime.now(timezone.utc)
         }
     )
+
     if not created:
         github_user.last_login_at = datetime.now(timezone.utc)
         github_user.username = user_name
         github_user.avatar_url = user_avatar_url
         await github_user.save()
 
-    # Generate tokens
+    # Tokens
     access_token = create_access_token(
         user_id=str(github_user.id),
         role=github_user.role
     )
     refresh_token = generate_refresh_token()
 
-    # Store refresh token
     await RefreshToken.create(
         id=uuid7(),
         user=github_user,
