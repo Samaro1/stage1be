@@ -11,7 +11,7 @@ import secrets
 import os
 from fastapi.security import HTTPBearer,HTTPAuthorizationCredentials
 from models import Users
-
+from urllib.parse import urlencode
 
 
 GENDERIZE_URL = "https://api.genderize.io"
@@ -73,7 +73,7 @@ COUNTRY_MAP = {
     "djibouti": "DJ",
     "comoros": "KM",
     "mauritius": "MU",
-    "seychelles": "BSC",
+    "seychelles": "SC",
     "lesotho": "LS",
     "eswatini": "SZ",
     "gambia": "GM",
@@ -311,7 +311,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials= Depends(se
     user_id= payload.get("sub")
 
     if not user_id:
-        return HTTPException(
+        raise HTTPException(
             status_code=401,
             detail={
                 "status": "error",
@@ -322,7 +322,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials= Depends(se
     user= await Users.filter(id= user_id).first()
 
     if not user:
-        return HTTPException(
+        raise HTTPException(
             status_code=401,
             detail={
                 "status": "error",
@@ -365,7 +365,7 @@ def build_pagination_links(request: Request, page: int, limit: int, total_pages:
         params["page"] = new_page
         params["limit"] = str(limit)
 
-        query_string = "&".join(f"{key}={value}" for key, value in params.items())
+        query_string = urlencode(params)
         if query_string:      
             return f"{base_url}?{query_string}"
         return base_url

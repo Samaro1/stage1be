@@ -144,31 +144,19 @@ async def logging_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def api_version_middleware(request: Request, call_next):
-
-    #only to be enforced for api routes 
     if request.url.path.startswith("/api"):
-        version= request.headers.get("X-API-Version")
-
-    if not version:
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": "error",
-                "message": "API version header required"
-            }
-        )
-    
-    if version != "1":
-        return JSONResponse(
-            status_code=400,
-            content={
-                "status": "error",
-                "message": "Invalid API Version"
-            }
-        )
-    
+        version = request.headers.get("X-API-Version")
+        if not version:
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "API version header required"}
+            )
+        if version != "1":
+            return JSONResponse(
+                status_code=400,
+                content={"status": "error", "message": "Invalid API Version"}
+            )
     return await call_next(request)
-
 
 @app.get("/auth/github")
 async def github_login():
@@ -243,7 +231,7 @@ async def github_callback(code: str, state: str):
         primary_email = next((e["email"] for e in emails if e.get("primary")), None)
 
     #Create or get user
-    github_user, _ = await Users.get_or_create(
+    github_user, created = await Users.get_or_create(
         github_id=user_github_id,
         defaults={
             "id": uuid7(),
@@ -255,6 +243,11 @@ async def github_callback(code: str, state: str):
             "last_login_at": datetime.now(timezone.utc)
         }
     )
+    if not created:
+        github_user.last_login_at = datetime.now(timezone.utc)
+        github_user.username = user_name
+        github_user.avatar_url = user_avatar_url
+        await github_user.save()
 
     #Generate tokens
     access_token = create_access_token(
@@ -281,9 +274,9 @@ async def github_callback(code: str, state: str):
         }
     )
 
-@app.get("/auth/refresh")
-async def refresh_authorization(refresh_token: str):
-    
+@app.post("/auth/refresh")
+async def refresh_authorization(body: dict = Body(...)):
+    refresh_token = body.get("refresh_token")
     token_record = await RefreshToken.filter(token=refresh_token).first()
 
     if not token_record:
@@ -304,10 +297,11 @@ async def refresh_authorization(refresh_token: str):
             detail={"status": "error", "message": "Refresh token has expired"}
         )
 
-    user = await token_record.user
+    await token_record.fetch_related("user")
+    user = token_record.user
 
     if not user or not user.is_active:
-        return HTTPException(
+        raise HTTPException(
             status_code=403,
             detail={"status": "error", "message": "User is inactive"}
         )
@@ -345,13 +339,13 @@ async def logout(refresh_token: str = Body(..., embed=True)):
     token_record= await RefreshToken.filter(token=refresh_token).first()
 
     if not token_record:
-        return HTTPException(
+        raise HTTPException(
             status_code=401,
             detail={"status": "error", "message": "Invalid refresh token"}
         )
 
     if token_record.is_revoked:
-        return HTTPException(
+        raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Token already revoked"}
         )
@@ -508,7 +502,147 @@ async def search_profiles(
             ]
         }
     )
+###GET API PROFILES TO EXPORT AS CSV 
+@app.get("/api/profiles/export")
+async def export_profiles(
+    user: Users = Depends(require_analyst),
+    file_format: str = "csv",
+    gender: Optional[str] = None,
+    country_id: Optional[str] = None,
+    age_group: Optional[str] = None,
+    min_age: Optional[int] = None,
+    max_age: Optional[int] = None,
+    min_gender_probability: Optional[float] = None,
+    min_country_probability: Optional[float] = None,
+    sort_by: Optional[str] = None,
+    order: Optional[str] = "asc",
+):
+    if file_format != "csv":
+        return JSONResponse(
+            status_code=400,
+            content={"status": "error", "message": "Only csv format is supported"}
+        )
 
+    if sort_by and sort_by not in ALLOWED_SORT_FIELDS:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"}
+        )
+    if order not in {"asc", "desc"}:
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": "order must be 'asc' or 'desc'"}
+        )
+
+    # Build filters
+    filters = {}
+    if gender is not None:
+        if not gender.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "gender must be a non-empty string"}
+            )
+        filters["gender__iexact"] = gender.strip()
+
+    if country_id is not None:
+        if not country_id.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "country_id must be a non-empty string"}
+            )
+        filters["country_id__iexact"] = country_id.strip()
+
+    if age_group is not None:
+        if not age_group.strip():
+            raise HTTPException(
+                status_code=400,
+                detail={"status": "error", "message": "age_group must be a non-empty string"}
+            )
+        filters["age_group__iexact"] = age_group.strip()
+
+    if min_age is not None:
+        if min_age < 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_age must be a non-negative integer"}
+            )
+        filters["age__gte"] = min_age
+
+    if max_age is not None:
+        if max_age < 0:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "max_age must be a non-negative integer"}
+            )
+        filters["age__lte"] = max_age
+
+    if min_gender_probability is not None:
+        if not 0 <= min_gender_probability <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_gender_probability must be between 0 and 1"}
+            )
+        filters["gender_probability__gte"] = min_gender_probability
+        
+    if min_country_probability is not None:
+        if not 0 <= min_country_probability <= 1:
+            raise HTTPException(
+                status_code=422,
+                detail={"status": "error", "message": "min_country_probability must be between 0 and 1"}
+            )
+        filters["country_probability__gte"] = min_country_probability
+
+    # Build queryset
+    queryset = Profile.filter(**filters)
+    if sort_by:
+        order_str = sort_by if order == "asc" else f"-{sort_by}"
+        queryset = queryset.order_by(order_str)
+    profiles = await queryset.all()
+
+    #for the CSV buffer
+    output= io.StringIO()
+    writer= csv.writer(output) 
+
+    #HEADER
+    writer.writerow([
+        "id",
+        "name",
+        "gender",
+        "gender_probability",
+        "age",
+        "age_group",
+        "country_id",
+        "country_name",
+        "country_probability",
+        "created_at"
+    ])
+    
+    #rows
+    for p in profiles:
+        writer.writerow([
+            str(p.id),
+            p.name,
+            p.gender,
+            p.gender_probability,
+            p.age,
+            p.age_group,
+            p.country_id,
+            p.country_name,
+            p.country_probability,
+            p.created_at.isoformat().replace("+00:00", "Z")
+        ])
+
+    output.seek(0)
+    timestamp = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+    filename = f"profiles_{timestamp}.csv"
+
+    return StreamingResponse(
+        output,
+        media_type="text/csv",
+        headers={
+            "Content-Disposition": f"attachment; filename={filename}"
+        }
+    )
 
 # GET /api/profiles
 #Support filtering by:
@@ -524,7 +658,7 @@ async def search_profiles(
 # sort_by → age | created_at | gender_probability
 # order  → asc | desc
 @app.get("/api/profiles")
-async def export_profiles(
+async def fetch_profiles(
     request: Request,
     user: Users= Depends(require_analyst),
     gender: Optional[str] = None,
@@ -650,6 +784,7 @@ async def export_profiles(
         }
     )
 
+
 # GET /api/profiles/{id}
 
 @app.get("/api/profiles/{id}")
@@ -691,158 +826,6 @@ async def get_profile(id: str,
         }
     )
 
-###GET API PROFILES TO EXPORT AS CSV 
-@app.get("/api/profiles/export")
-async def fetch_profiles(
-    request: Request,
-    user: Users= Depends(require_analyst),
-    format: str = "csv",
-    gender: Optional[str] = None,
-    country_id: Optional[str] = None,
-    age_group: Optional[str] = None,
-    min_age: Optional[int] = None,
-    max_age: Optional[int] = None,
-    min_gender_probability: Optional[float] = None,
-    min_country_probability: Optional[float] = None,
-    sort_by: Optional[str] = None,
-    order: Optional[str] = "asc",
-    page: int = 1,
-    limit: int = 10,
-):
-    if format!= "csv":
-        return{
-            "status": "error",
-            "message": "only csv format is supported "
-        }
-
-    page, limit = validate_pagination(page, limit)
-
-    if sort_by and sort_by not in ALLOWED_SORT_FIELDS:
-        raise HTTPException(
-            status_code=422,
-            detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"}
-        )
-    if order not in {"asc", "desc"}:
-        raise HTTPException(
-            status_code=422,
-            detail={"status": "error", "message": "order must be 'asc' or 'desc'"}
-        )
-
-    # Build filters
-    filters = {}
-    if gender is not None:
-        if not gender.strip():
-            raise HTTPException(
-                status_code=400,
-                detail={"status": "error", "message": "gender must be a non-empty string"}
-            )
-        filters["gender__iexact"] = gender.strip()
-
-    if country_id is not None:
-        if not country_id.strip():
-            raise HTTPException(
-                status_code=400,
-                detail={"status": "error", "message": "country_id must be a non-empty string"}
-            )
-        filters["country_id__iexact"] = country_id.strip()
-
-    if age_group is not None:
-        if not age_group.strip():
-            raise HTTPException(
-                status_code=400,
-                detail={"status": "error", "message": "age_group must be a non-empty string"}
-            )
-        filters["age_group__iexact"] = age_group.strip()
-
-    if min_age is not None:
-        if min_age < 0:
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "error", "message": "min_age must be a non-negative integer"}
-            )
-        filters["age__gte"] = min_age
-
-    if max_age is not None:
-        if max_age < 0:
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "error", "message": "max_age must be a non-negative integer"}
-            )
-        filters["age__lte"] = max_age
-
-    if min_gender_probability is not None:
-        if not 0 <= min_gender_probability <= 1:
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "error", "message": "min_gender_probability must be between 0 and 1"}
-            )
-        filters["gender_probability__gte"] = min_gender_probability
-        
-    if min_country_probability is not None:
-        if not 0 <= min_country_probability <= 1:
-            raise HTTPException(
-                status_code=422,
-                detail={"status": "error", "message": "min_country_probability must be between 0 and 1"}
-            )
-        filters["country_probability__gte"] = min_country_probability
-
-    # Build queryset
-    queryset = Profile.filter(**filters)
-    if sort_by:
-        order_str = sort_by if order == "asc" else f"-{sort_by}"
-        queryset = queryset.order_by(order_str)
-
-    #count first, then paginate
-    total = await queryset.count()
-    profiles = await queryset.offset((page - 1) * limit).limit(limit)
-
-    total_pages= math.ceil(total / limit) if total > 0 else 1
-    links= build_pagination_links(request,page, limit, total_pages)
-
-    #for the CSV buffer
-    output= io.StringIO()
-    writer= csv.writer(output) 
-
-    #HEADER
-    writer.writerow([
-        "id",
-        "name",
-        "gender",
-        "gender_probability",
-        "age",
-        "age_group",
-        "country_id",
-        "country_name",
-        "country_probability",
-        "created_at"
-    ])
-    
-    #rows
-    for p in profiles:
-        writer.writerow([
-            str(p.id),
-            p.name,
-            p.gender,
-            p.gender_probability,
-            p.age,
-            p.age_group,
-            p.country_id,
-            p.country_name,
-            p.country_probability,
-            p.created_at.isoformat().replace("+00:00", "Z")
-        ])
-
-    output.seek(0)
-
-    filename= f"profiles_export.csv"
-
-    return StreamingResponse(
-        output,
-        media_type="text/csv",
-        headers={
-            "Content-Disposition": f"attachment: filename= {filename}"
-        }
-    )
 
 # DELETE /api/profiles/{id}
 
