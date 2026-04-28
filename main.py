@@ -1,6 +1,6 @@
 from datetime import datetime, timezone, timedelta
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Response
+from fastapi import FastAPI, HTTPException, Response, Body
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -244,6 +244,30 @@ async def refresh_authorization(refresh_token: str):
             "refresh_token": new_refresh_token
         }
     )
+
+@app.post("/auth/logout")
+async def logout(refresh_token: str = Body(..., embed=True)):
+    token_record= await RefreshToken.filter(token=refresh_token).first()
+
+    if not token_record:
+        return HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Invalid refresh token"}
+        )
+
+    if token_record.is_revoked:
+        return HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Token already revoked"}
+        )
+    
+    token_record.is_revoked= True
+    await token_record.save()
+
+    return{
+        "status": "success",
+        "message": "Logged out successfully"
+    }
 
 def validate_pagination(page: int, limit: int) -> tuple[int, int]:
     if page < 1:
