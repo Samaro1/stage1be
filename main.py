@@ -272,6 +272,10 @@ async def github_callback(code: str, state: str):
         emails = email_response.json()
         primary_email = next((e["email"] for e in emails if e.get("primary")), None)
 
+    #Check if this is the first user
+    user_count = await Users.all().count()
+    first_user_role = "admin" if user_count == 0 else "analyst"
+    
     #Create or get user
     github_user, created = await Users.get_or_create(
         github_id=user_github_id,
@@ -280,7 +284,7 @@ async def github_callback(code: str, state: str):
             "username": user_name,
             "email": primary_email,
             "avatar_url": user_avatar_url,
-            "role": "analyst",
+            "role": first_user_role,
             "is_active": True,
             "last_login_at": datetime.now(timezone.utc)
         }
