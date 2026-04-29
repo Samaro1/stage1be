@@ -1,0 +1,70 @@
+name: Tests
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:14
+        env:
+          POSTGRES_USER: testuser
+          POSTGRES_PASSWORD: testpass
+          POSTGRES_DB: testdb
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r stage1be/requirements.txt
+
+    - name: Set up environment
+      run: |
+        cat > stage1be/.env.test << EOF
+        DATABASE_URL=postgres://testuser:testpass@localhost:5432/testdb
+        GITHUB_CLIENT_ID=test_client_id
+        GITHUB_CLIENT_SECRET=test_client_secret
+        GITHUB_REDIRECT_URI=http://localhost:8000/auth/github/callback
+        WEB_REDIRECT_URI=http://localhost:8000/auth/web/callback
+        FRONTEND_URL=http://localhost:5500
+        JWT_SECRET=test_secret_key_at_least_32_characters_long_123456
+        EOF
+
+    - name: Run tests
+      run: |
+        cd stage1be
+        pytest test_main.py -v --tb=short
+      env:
+        DATABASE_URL: postgres://testuser:testpass@localhost:5432/testdb
+
+    - name: Generate coverage report
+      run: |
+        cd stage1be
+        pip install pytest-cov
+        pytest test_main.py --cov=. --cov-report=xml --cov-report=term-missing || true
+
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        files: ./stage1be/coverage.xml
+        flags: unittests
+        name: codecov-umbrella
+        fail_ci_if_error: false

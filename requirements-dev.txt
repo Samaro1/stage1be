@@ -1,0 +1,22 @@
+# Development and testing dependencies (install with: pip install -r requirements-dev.txt)
+
+# Core dependencies
+-r requirements.txt
+
+# Code Quality & Linting
+flake8==7.0.0
+black==24.1.1
+isort==5.13.2
+pylint==3.0.3
+
+# Testing & Coverage
+pytest==7.4.3
+pytest-asyncio==0.23.2
+pytest-cov==4.1.0
+
+# Documentation
+sphinx==7.2.6
+
+# Development tools
+ipython==8.20.0
+ipdb==0.13.13
