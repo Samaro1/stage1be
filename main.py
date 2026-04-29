@@ -43,14 +43,21 @@ GITHUB_CLIENT_ID = os.getenv("GITHUB_CLIENT_ID")
 GITHUB_CLIENT_SECRET = os.getenv("GITHUB_CLIENT_SECRET")
 GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 rate_limit_store=defaultdict(list)
-# CORS (strict grader-safe)
+
+#CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:5500",
+        "http://127.0.0.1:5500",
+        #To change this after web portal is deployed, currently allowing localhost for testing
+        "https://your-web-portal-domain.com"
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 OAUTH_STATES = {}
 
 # Exception handlers
@@ -159,18 +166,19 @@ async def api_version_middleware(request: Request, call_next):
     return await call_next(request)
 
 @app.get("/auth/github")
-async def github_login():
+async def github_login(redirect: Optional[str] = None):
     state = secrets.token_urlsafe(32)
-    OAUTH_STATES[state] = True
+    OAUTH_STATES[state] = {"redirect": redirect}
+
+    callback = WEB_REDIRECT_URI if redirect == "web" else GITHUB_REDIRECT_URI
 
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
-        f"&redirect_uri={GITHUB_REDIRECT_URI}"
+        f"&redirect_uri={callback}"
         f"&scope=user:email"
         f"&state={state}"
     )
-
     return RedirectResponse(url=github_auth_url)
 
 @app.get("/auth/github/callback")
@@ -876,6 +884,86 @@ class CLICallbackRequest(BaseModel):
     code_verifier: str
     redirect_uri: str
 
+WEB_REDIRECT_URI = os.getenv("WEB_REDIRECT_URI", "http://localhost:5500/web/dashboard.html")
+
+@app.get("/auth/web/callback")
+async def web_callback(code: str, state: str, response: Response):
+
+    if state not in OAUTH_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Invalid state"}
+        )
+    del OAUTH_STATES[state]
+
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://github.com/login/oauth/access_token",
+            json={
+                "client_id": GITHUB_CLIENT_ID,
+                "client_secret": GITHUB_CLIENT_SECRET,
+                "code": code,
+                "redirect_uri": WEB_REDIRECT_URI,
+            },
+            headers={"Accept": "application/json"}
+        )
+        token_data = token_response.json()
+        github_token = token_data.get("access_token")
+
+        if not github_token:
+            raise HTTPException(status_code=502, detail={"status": "error", "message": "Failed to obtain GitHub access token"})
+
+        user_response = await client.get(
+            "https://api.github.com/user",
+            headers={"Authorization": f"Bearer {github_token}", "Accept": "application/json"}
+        )
+        user_data = user_response.json()
+        user_github_id = str(user_data.get("id"))
+        user_name = user_data.get("login")
+        user_avatar_url = user_data.get("avatar_url")
+
+        email_response = await client.get(
+            "https://api.github.com/user/emails",
+            headers={"Authorization": f"Bearer {github_token}"}
+        )
+        primary_email = None
+        if email_response.status_code == 200:
+            emails = email_response.json()
+            if isinstance(emails, list):
+                primary_email = next((e.get("email") for e in emails if e.get("primary")), None)
+
+    github_user, created = await Users.get_or_create(
+        github_id=user_github_id,
+        defaults={
+            "id": uuid7(),
+            "username": user_name,
+            "email": primary_email,
+            "avatar_url": user_avatar_url,
+            "role": "analyst",
+            "is_active": True,
+            "last_login_at": datetime.now(timezone.utc)
+        }
+    )
+    if not created:
+        github_user.last_login_at = datetime.now(timezone.utc)
+        github_user.username = user_name
+        github_user.avatar_url = user_avatar_url
+        await github_user.save()
+
+    access_token = create_access_token(user_id=str(github_user.id), role=github_user.role)
+    refresh_token = generate_refresh_token()
+
+    await RefreshToken.create(
+        id=uuid7(),
+        user=github_user,
+        token=refresh_token,
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
+    )
+
+    redirect = RedirectResponse(url=WEB_REDIRECT_URI)
+    redirect.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=180)
+    redirect.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=300)
+    return redirect
 
 @app.post("/auth/cli/callback")
 async def cli_callback(body: CLICallbackRequest):

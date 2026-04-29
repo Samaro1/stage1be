@@ -312,49 +312,29 @@ async def get_current_user(
     access_token: Optional[str] = Cookie(default=None)
 ):
     token = None
-    
     if credentials:
         token = credentials.credentials
     elif access_token:
         token = access_token
-    
+
     if not token:
         raise HTTPException(
             status_code=401,
             detail={"status": "error", "message": "Not authenticated"}
         )
-    payload= decode_access_token(token)
-    user_id= payload.get("sub")
+
+    payload = decode_access_token(token)
+    user_id = payload.get("sub")
 
     if not user_id:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "status": "error",
-                "message": "Invalid token payload"
-            }
-        )
-    
-    user= await Users.filter(id= user_id).first()
+        raise HTTPException(status_code=401, detail={"status": "error", "message": "Invalid token payload"})
 
+    user = await Users.filter(id=user_id).first()
     if not user:
-        raise HTTPException(
-            status_code=401,
-            detail={
-                "status": "error",
-                "message": "User not found"
-            }
-        )
-    
+        raise HTTPException(status_code=401, detail={"status": "error", "message": "User not found"})
     if not user.is_active:
-        raise HTTPException(
-            status_code=403,
-            detail={
-                "status": "error",
-                "message": "User is inactive"
-            }
-        )
-    
+        raise HTTPException(status_code=403, detail={"status": "error", "message": "User is inactive"})
+
     return user
 
 async def require_admin(user: Users = Depends(get_current_user)):
