@@ -175,14 +175,12 @@ async def github_login(redirect: Optional[str] = None):
     state = secrets.token_urlsafe(32)
     OAUTH_STATES[state] = {"redirect": redirect}
 
-    callback = WEB_REDIRECT_URI if redirect == "web" else GITHUB_REDIRECT_URI
-
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
-        f"&redirect_uri={callback}"
         f"&scope=user:email"
         f"&state={state}"
+        # no &redirect_uri 
     )
     return RedirectResponse(url=github_auth_url)
 
