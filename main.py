@@ -19,7 +19,7 @@ import io
 import csv
 from collections import defaultdict
 import time
-
+from urllib.parse import quote
 
 from models import Profile
 from utils import (
@@ -180,8 +180,8 @@ async def github_login(redirect: Optional[str] = None):
     github_auth_url = (
         f"https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
-        f"&redirect_uri={callback}"
-        f"&scope=user:email"
+        f"&redirect_uri={quote(callback or '', safe='')}"
+        f"&scope=user%3Aemail"
         f"&state={state}"
     )
     return RedirectResponse(url=github_auth_url)
