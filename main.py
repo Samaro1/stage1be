@@ -884,8 +884,7 @@ class CLICallbackRequest(BaseModel):
     code_verifier: str
     redirect_uri: str
 
-WEB_REDIRECT_URI = os.getenv("WEB_REDIRECT_URI", "http://localhost:5500/web/dashboard.html")
-
+WEB_REDIRECT_URI = os.getenv("WEB_REDIRECT_URI", "http://localhost:5000/auth/web/callback")
 @app.get("/auth/web/callback")
 async def web_callback(code: str, state: str, response: Response):
 
