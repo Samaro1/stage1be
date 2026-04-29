@@ -959,9 +959,11 @@ async def web_callback(code: str, state: str, response: Response):
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
     )
 
-    redirect = RedirectResponse(url=WEB_REDIRECT_URI)
-    redirect.set_cookie(key="access_token", value=access_token, httponly=True, samesite="lax", max_age=180)
-    redirect.set_cookie(key="refresh_token", value=refresh_token, httponly=True, samesite="lax", max_age=300)
+    FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
+    redirect = RedirectResponse(url=f"{FRONTEND_URL}/dashboard.html")
+
+    redirect.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="lax", max_age=180)
+    redirect.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="lax", max_age=300)
     return redirect
 
 @app.post("/auth/cli/callback")
