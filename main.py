@@ -216,8 +216,7 @@ async def github_login(redirect: Optional[str] = None):
     return RedirectResponse(url=github_auth_url)
 
 @app.get("/auth/github/callback")
-async def github_callback(code: str, state: str):
-
+async def github_callback(code: str, state: str, code_verifier: Optional[str] = None):
     # Validate state
     if state not in OAUTH_STATES:
         raise HTTPException(
