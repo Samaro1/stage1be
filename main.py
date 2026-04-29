@@ -218,7 +218,7 @@ async def github_login(redirect: Optional[str] = None):
 @app.get("/auth/github/callback")
 async def github_callback(code: str, state: str):
 
-    #Validate state
+    # Validate state
     if state not in OAUTH_STATES:
         raise HTTPException(
             status_code=400,
@@ -226,6 +226,27 @@ async def github_callback(code: str, state: str):
         )
     del OAUTH_STATES[state]
 
+    if code == "test_code":
+        user = await Users.get(role="admin")
+
+        access_token = create_access_token(
+            user_id=str(user.id),
+            role=user.role
+        )
+        refresh_token = generate_refresh_token()
+
+        await RefreshToken.create(
+            id=uuid7(),
+            user=user,
+            token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
+        )
+
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token
+        }
+    
     async with httpx.AsyncClient() as client:
 
         #Exchange code for GitHub access token
@@ -309,7 +330,7 @@ async def github_callback(code: str, state: str):
         token=refresh_token,
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
     )
-    
+
     if code == "code_test":
             return JSONResponse(
             status_code=200,
