@@ -283,8 +283,8 @@ async def github_callback(code: str, state: str):
     )
 
 @app.post("/auth/refresh")
-async def refresh_authorization(body: dict = Body(...)):
-    refresh_token = body.get("refresh_token")
+async def refresh_authorization(request: Request, body: dict = Body(...)):
+    refresh_token = body.get("refresh_token") or request.cookies.get("refresh_token")
     token_record = await RefreshToken.filter(token=refresh_token).first()
 
     if not token_record:
