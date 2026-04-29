@@ -66,6 +66,29 @@ OAUTH_STATES = {}
 app.add_exception_handler(HTTPException, custom_http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 
+# 404 handler for non-existent endpoints
+from starlette.exceptions import HTTPException as StarletteHTTPException
+@app.exception_handler(StarletteHTTPException)
+async def http_exception_handler(request: Request, exc: StarletteHTTPException):
+    if exc.status_code == 404:
+        return JSONResponse(
+            status_code=404,
+            content={"status": "error", "message": "Endpoint not found"}
+        )
+    # For other HTTP exceptions, use the default handler
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"status": "error", "message": str(exc.detail)}
+    )
+
+# 404 handler for non-existent endpoints
+@app.exception_handler(404)
+async def not_found_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=404,
+        content={"status": "error", "message": "Endpoint not found"}
+    )
+
 
 # DB setup
 
@@ -84,6 +107,11 @@ if DATABASE_URL.startswith("postgresql+asyncpg://"):
 # Models
 class ProfileRequest(BaseModel):
     name: str
+    
+    class Config:
+        json_schema_extra = {
+            "example": {"name": "John Doe"}
+        }
 
 
 ALLOWED_SORT_FIELDS = {
@@ -153,19 +181,20 @@ async def logging_middleware(request: Request, call_next):
 
 @app.middleware("http")
 async def api_version_middleware(request: Request, call_next):
-    if request.url.path.startswith("/api"):
+    # Only require API version header for profile endpoints
+    if request.url.path.startswith("/api/profiles"):
         if request.method == "OPTIONS":
             return await call_next(request)
             
         version = request.headers.get("X-API-Version")
         if not version:
             return JSONResponse(
-                status_code=400,
+                status_code=422,
                 content={"status": "error", "message": "API version header required"}
             )
         if version != "1":
             return JSONResponse(
-                status_code=400,
+                status_code=422,
                 content={"status": "error", "message": "Invalid API Version"}
             )
     return await call_next(request)
@@ -396,7 +425,7 @@ async def create_profile(body: ProfileRequest,
 
     if not name:
         raise HTTPException(
-            status_code=400,
+            status_code=422,
             detail={"status": "error", "message": "Name must be a non-empty string"}
         )
 
@@ -532,7 +561,7 @@ async def export_profiles(
 ):
     if file_format != "csv":
         return JSONResponse(
-            status_code=400,
+            status_code=422,
             content={"status": "error", "message": "Only csv format is supported"}
         )
 
@@ -552,7 +581,7 @@ async def export_profiles(
     if gender is not None:
         if not gender.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "gender must be a non-empty string"}
             )
         filters["gender__iexact"] = gender.strip()
@@ -560,7 +589,7 @@ async def export_profiles(
     if country_id is not None:
         if not country_id.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "country_id must be a non-empty string"}
             )
         filters["country_id__iexact"] = country_id.strip()
@@ -568,7 +597,7 @@ async def export_profiles(
     if age_group is not None:
         if not age_group.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "age_group must be a non-empty string"}
             )
         filters["age_group__iexact"] = age_group.strip()
@@ -704,7 +733,7 @@ async def fetch_profiles(
     if gender is not None:
         if not gender.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "gender must be a non-empty string"}
             )
         filters["gender__iexact"] = gender.strip()
@@ -712,7 +741,7 @@ async def fetch_profiles(
     if country_id is not None:
         if not country_id.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "country_id must be a non-empty string"}
             )
         filters["country_id__iexact"] = country_id.strip()
@@ -720,7 +749,7 @@ async def fetch_profiles(
     if age_group is not None:
         if not age_group.strip():
             raise HTTPException(
-                status_code=400,
+                status_code=422,
                 detail={"status": "error", "message": "age_group must be a non-empty string"}
             )
         filters["age_group__iexact"] = age_group.strip()
@@ -808,7 +837,7 @@ async def get_profile(id: str,
         UUID(id)
     except ValueError:
         raise HTTPException(
-            status_code=400,
+            status_code=422,
             detail={"status": "error", "message": "Invalid UUID format"}
         )
 
@@ -895,7 +924,7 @@ async def web_callback(code: str, state: str, response: Response):
 
     if state not in OAUTH_STATES:
         raise HTTPException(
-            status_code=400,
+            status_code=422,
             detail={"status": "error", "message": "Invalid state"}
         )
     del OAUTH_STATES[state]
