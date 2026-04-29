@@ -852,6 +852,25 @@ async def delete_profile(id: str,
     await profile.delete()
     return Response(status_code=204)
 
+@app.get("/auth/me")
+async def get_me(user: Users = Depends(require_analyst)):
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "data": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "avatar_url": user.avatar_url,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat().replace("+00:00", "Z"),
+                "last_login_at": user.last_login_at.isoformat().replace("+00:00", "Z") if user.last_login_at else None
+            }
+        }
+    )
+
 class CLICallbackRequest(BaseModel):
     code: str
     code_verifier: str
