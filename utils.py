@@ -305,10 +305,25 @@ def generate_refresh_token() -> str:
 
 
 security= HTTPBearer()
-async def get_current_user(credentials: HTTPAuthorizationCredentials= Depends(security)):
-    token= credentials.credentials
-    payload= decode_access_token(token)
+from fastapi import Cookie
 
+async def get_current_user(
+    credentials: Optional[HTTPAuthorizationCredentials] = Depends(HTTPBearer(auto_error=False)),
+    access_token: Optional[str] = Cookie(default=None)
+):
+    token = None
+    
+    if credentials:
+        token = credentials.credentials
+    elif access_token:
+        token = access_token
+    
+    if not token:
+        raise HTTPException(
+            status_code=401,
+            detail={"status": "error", "message": "Not authenticated"}
+        )
+    payload= decode_access_token(token)
     user_id= payload.get("sub")
 
     if not user_id:
