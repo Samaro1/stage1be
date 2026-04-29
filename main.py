@@ -45,12 +45,14 @@ GITHUB_REDIRECT_URI = os.getenv("GITHUB_REDIRECT_URI")
 rate_limit_store=defaultdict(list)
 
 #CORS
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5500")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "http://localhost:5500",
         "http://127.0.0.1:5500",
-        "https://insighta-labs-web.vercel.app/"
+        FRONTEND_URL,
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -961,8 +963,8 @@ async def web_callback(code: str, state: str, response: Response):
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://127.0.0.1:3000")
     redirect = RedirectResponse(url=f"{FRONTEND_URL}/dashboard.html")
 
-    redirect.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="lax", max_age=180)
-    redirect.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="lax", max_age=300)
+    redirect.set_cookie(key="access_token", value=access_token, httponly=True, secure=True, samesite="none", max_age=180)
+    redirect.set_cookie(key="refresh_token", value=refresh_token, httponly=True, secure=True, samesite="none", max_age=300)
     return redirect
 
 @app.post("/auth/cli/callback")
