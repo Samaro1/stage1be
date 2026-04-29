@@ -154,6 +154,9 @@ async def logging_middleware(request: Request, call_next):
 @app.middleware("http")
 async def api_version_middleware(request: Request, call_next):
     if request.url.path.startswith("/api"):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+            
         version = request.headers.get("X-API-Version")
         if not version:
             return JSONResponse(
