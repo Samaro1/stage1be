@@ -50,8 +50,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:5500",
         "http://127.0.0.1:5500",
-        #To change this after web portal is deployed, currently allowing localhost for testing
-        "https://your-web-portal-domain.com"
+        "https://insighta-labs-web.vercel.app/"
     ],
     allow_credentials=True,
     allow_methods=["*"],
