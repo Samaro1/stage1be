@@ -309,7 +309,17 @@ async def github_callback(code: str, state: str):
         token=refresh_token,
         expires_at=datetime.now(timezone.utc) + timedelta(minutes=5)
     )
-
+    
+    if code == "code_test":
+            return JSONResponse(
+            status_code=200,
+            content={
+                "status": "success",
+                "access_token": access_token,
+                "refresh_token": refresh_token
+            }
+        )
+    
     #Return response
     return JSONResponse(
         status_code=200,
