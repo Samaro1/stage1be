@@ -966,11 +966,26 @@ async def web_callback(code: str, state: str, response: Response):
 
     FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5500")
     
-    # Pass tokens as query params to frontend
-    redirect = RedirectResponse(
-        url=f"{FRONTEND_URL}/auth/callback.html?access_token={access_token}&refresh_token={refresh_token}"
+    redirect_response = RedirectResponse(url=f"{FRONTEND_URL}/dashboard.html")
+    redirect_response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=180,
+        path="/",
     )
-    return redirect
+    redirect_response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="none",
+        max_age=300,
+        path="/",
+    )
+    return redirect_response
 
 @app.post("/auth/cli/callback")
 async def cli_callback(body: CLICallbackRequest):
