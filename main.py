@@ -1,4 +1,6 @@
 from datetime import datetime, timezone, timedelta
+from os import path
+from importlib.resources import path
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Response, Body, Depends,Request
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -20,6 +22,8 @@ import csv
 from collections import defaultdict
 import time
 from urllib.parse import quote
+import base64
+import hashlib
 
 from models import Profile
 from utils import (
@@ -55,7 +59,7 @@ app.add_middleware(
         "https://insighta-labs-web.vercel.app",
         FRONTEND_URL,
     ],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -138,8 +142,10 @@ async def rate_limit_middleware(request: Request, call_next):
     # Determine limit
     if path.startswith("/auth"):
         limit = 10
+        key = f"{identifier}:auth"
     else:
         limit = 60
+        key = f"{identifier}:{path}"
 
     window = 60  # seconds
 
@@ -202,7 +208,15 @@ async def api_version_middleware(request: Request, call_next):
 @app.get("/auth/github")
 async def github_login(redirect: Optional[str] = None):
     state = secrets.token_urlsafe(32)
-    OAUTH_STATES[state] = {"redirect": redirect}
+    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
+    code_challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(code_verifier.encode()).digest()
+    ).rstrip(b"=").decode()
+    
+    OAUTH_STATES[state] = {
+        "redirect": redirect,
+        "code_verifier": code_verifier
+    }
 
     callback = WEB_REDIRECT_URI if redirect == "web" else GITHUB_REDIRECT_URI
 
@@ -212,16 +226,31 @@ async def github_login(redirect: Optional[str] = None):
         f"&redirect_uri={quote(callback or '', safe='')}"
         f"&scope=user%3Aemail"
         f"&state={state}"
+        f"&code_challenge={code_challenge}"
+        f"&code_challenge_method=S256"
     )
     return RedirectResponse(url=github_auth_url)
 
 @app.get("/auth/github/callback")
 async def github_callback(
-    code: str,
-    state: str,
-    code_verifier: Optional[str] = None
+    code: Optional[str] = None,
+    state: Optional[str] = None,
 ):
-
+    if not code:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Missing code parameter"}
+        )
+    if not state:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Missing state parameter"}
+        )
+    if state not in OAUTH_STATES:
+        raise HTTPException(
+            status_code=400,
+            detail={"status": "error", "message": "Invalid state"}
+        )
     # TEST MODE: bypass EVERYTHING (state ignored)
     if code == "test_code":
         user = await Users.filter(role="admin").first()
@@ -252,11 +281,6 @@ async def github_callback(
         }
 
     # NORMAL FLOW: state validation only for real OAuth
-    if state not in OAUTH_STATES:
-        raise HTTPException(
-            status_code=400,
-            detail={"status": "error", "message": "Invalid state"}
-        )
     del OAUTH_STATES[state]
 
     async with httpx.AsyncClient() as client:
@@ -926,6 +950,25 @@ async def delete_profile(id: str,
 
     await profile.delete()
     return Response(status_code=204)
+
+@app.get("/api/users/me")
+async def get_my_profile(user: Users = Depends(require_analyst)):
+    return JSONResponse(
+        status_code=200,
+        content={
+            "status": "success",
+            "data": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "role": user.role,
+                "avatar_url": user.avatar_url,
+                "is_active": user.is_active,
+                "created_at": user.created_at.isoformat().replace("+00:00", "Z"),
+                "last_login_at": user.last_login_at.isoformat().replace("+00:00", "Z") if user.last_login_at else None
+            }
+        }
+    )
 
 @app.get("/auth/me")
 async def get_me(user: Users = Depends(require_analyst)):
