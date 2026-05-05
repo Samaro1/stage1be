@@ -528,7 +528,7 @@ async def create_profile(
     )
 
     #INVALIDATE CACHE AFTER WRITE
-    invalidate_all()
+    await invalidate_all()
     return JSONResponse(
         status_code=201,
         content={
@@ -906,7 +906,7 @@ async def fetch_profiles(
     }
 
     #Store in cache
-    set(cache_key, response_data)
+    await set(cache_key, response_data)
 
     return JSONResponse(
         status_code=200,
@@ -979,7 +979,7 @@ async def delete_profile(id: str,
 
     await profile.delete()
     #INVALIDATE THE CACHE OR CLEAR IT AS THE DATA HAS CHANGED
-    invalidate_all()
+    await invalidate_all()
     return Response(status_code=204)
 
 @app.get("/api/users/me")
