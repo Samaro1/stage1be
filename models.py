@@ -41,3 +41,20 @@ class RefreshToken(Model):
 
     class Meta:
         table = "refresh_tokens"
+
+class Meta:
+    table = "profiles"
+    indexes = (
+        ("gender",),
+        ("country_id",),
+        ("age_group",),
+
+        # range or sorting
+        ("age",),
+        ("gender_probability",),
+        ("country_probability",),
+        ("created_at",),
+
+        # composite
+        ("gender", "country_id"),
+    )
