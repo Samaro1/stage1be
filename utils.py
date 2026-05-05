@@ -371,3 +371,42 @@ def build_pagination_links(request: Request, page: int, limit: int, total_pages:
         "next": make_url(page + 1) if page < total_pages else None,
         "prev": make_url(page - 1) if page > 1 else None
     }
+
+def normalize_cache_key(
+    filters: dict,
+    page: int,
+    limit: int,
+    sort_by: str | None = None,
+    order: str | None = None,
+) -> str:
+    parts = []
+
+    # Normalize and clean filters
+    cleaned_filters = {}
+    for key, value in filters.items():
+        if value is None:
+            continue
+
+        # Normalize strings to lowercase
+        if isinstance(value, str):
+            value = value.strip().lower()
+
+        cleaned_filters[key] = value
+
+    # Sort filters by key (alphabetical sort)
+    for key in sorted(cleaned_filters.keys()):
+        value = cleaned_filters[key]
+        parts.append(f"{key}={value}")
+
+    # Add pagination
+    parts.append(f"page={page}")
+    parts.append(f"limit={limit}")
+
+    # Add sorting, only if provided
+    if sort_by:
+        parts.append(f"sort_by={sort_by}")
+    if order:
+        parts.append(f"order={order}")
+
+    #Join into single string
+    return "|".join(parts)
