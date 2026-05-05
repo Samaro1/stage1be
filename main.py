@@ -24,7 +24,7 @@ import time
 from urllib.parse import quote
 import base64
 import hashlib
-from cache import cache
+from cache import get, set, invalidate_all
 from utils import normalize_cache_key
 
 from models import Profile
@@ -477,9 +477,10 @@ def validate_pagination(page: int, limit: int) -> tuple[int, int]:
 
 # POST /api/profiles
 @app.post("/api/profiles")
-async def create_profile(body: ProfileRequest,
-                         user: Users = Depends(require_admin)):
-
+async def create_profile(
+    body: ProfileRequest,
+    user: Users = Depends(require_admin)
+):
     name = body.name.strip().lower()
 
     if not name:
@@ -526,6 +527,8 @@ async def create_profile(body: ProfileRequest,
         **nation_info,
     )
 
+    #INVALIDATE CACHE AFTER WRITE
+    invalidate_all()
     return JSONResponse(
         status_code=201,
         content={
@@ -544,6 +547,7 @@ async def create_profile(body: ProfileRequest,
             }
         }
     )
+
 
 @app.get("/api/profiles/search")
 async def search_profiles(
@@ -856,8 +860,8 @@ async def fetch_profiles(
         order=order
     )
 
-    cached_result = cache.get(cache_key)
-    if cached_result:
+    cached_result = get(cache_key)
+    if cached_result is not None:
         return JSONResponse(
             status_code=200,
             content=cached_result
@@ -902,7 +906,7 @@ async def fetch_profiles(
     }
 
     #Store in cache
-    cache.set(cache_key, response_data)
+    set(cache_key, response_data)
 
     return JSONResponse(
         status_code=200,
@@ -974,6 +978,8 @@ async def delete_profile(id: str,
         )
 
     await profile.delete()
+    #INVALIDATE THE CACHE OR CLEAR IT AS THE DATA HAS CHANGED
+    invalidate_all()
     return Response(status_code=204)
 
 @app.get("/api/users/me")
