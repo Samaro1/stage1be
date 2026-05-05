@@ -25,8 +25,7 @@ from urllib.parse import quote
 import base64
 import hashlib
 from cache import get, set, invalidate_all
-from stage1be.ingestion import ingest_csv
-from stage1be.ingestion import ingest_csv
+from ingestion import ingest_csv
 from utils import normalize_cache_key
 
 from models import Profile
@@ -576,6 +575,22 @@ async def search_profiles(
             content={"status": "error", "message": "Unable to interpret query"}
         )
 
+    # Build cache key + check cache
+    cache_key = normalize_cache_key(
+        filters=filters,
+        page=page,
+        limit=limit,
+        sort_by=None,
+        order=None
+    )
+
+    cached_result = get(cache_key)
+    if cached_result is not None:
+        return JSONResponse(
+            status_code=200,
+            content=cached_result
+        )
+
     queryset = Profile.filter(**filters)
     total = await queryset.count()
     profiles = await queryset.offset((page - 1) * limit).limit(limit)
@@ -583,32 +598,40 @@ async def search_profiles(
     total_pages = math.ceil(total / limit) if total > 0 else 1
     links = build_pagination_links(request, page, limit, total_pages)
 
+    #Build response
+    response_data = {
+        "status": "success",
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": total_pages,
+        "links": links,
+        "data": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "gender": p.gender,
+                "gender_probability": p.gender_probability,
+                "age": p.age,
+                "age_group": p.age_group,
+                "country_id": p.country_id,
+                "country_name": p.country_name,
+                "country_probability": p.country_probability,
+                "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
+            }
+            for p in profiles
+        ]
+    }
+
+    #Store in cache
+    await set(cache_key, response_data)
+
     return JSONResponse(
         status_code=200,
-        content={
-            "status": "success",
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "total_pages": total_pages,
-            "links": links,
-            "data": [
-                {
-                    "id": str(p.id),
-                    "name": p.name,
-                    "gender": p.gender,
-                    "gender_probability": p.gender_probability,
-                    "age": p.age,
-                    "age_group": p.age_group,
-                    "country_id": p.country_id,
-                    "country_name": p.country_name,
-                    "country_probability": p.country_probability,
-                    "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
-                }
-                for p in profiles
-            ]
-        }
+        content=response_data
     )
+
+
 ###GET API PROFILES TO EXPORT AS CSV 
 @app.get("/api/profiles/export")
 async def export_profiles(
