@@ -2,7 +2,7 @@ from datetime import datetime, timezone, timedelta
 from os import path
 from importlib.resources import path
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Response, Body, Depends,Request
+from fastapi import FastAPI, File, HTTPException, Response, Body, Depends,Request, UploadFile
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -25,6 +25,8 @@ from urllib.parse import quote
 import base64
 import hashlib
 from cache import get, set, invalidate_all
+from stage1be.ingestion import ingest_csv
+from stage1be.ingestion import ingest_csv
 from utils import normalize_cache_key
 
 from models import Profile
@@ -913,6 +915,30 @@ async def fetch_profiles(
         content=response_data
     )
 
+##CSV UPLOAD 
+@app.post("/api/profiles/upload")
+async def upload_profiles_csv(
+    file: UploadFile = File(...),
+    user: Users = Depends(require_admin),
+):
+    if not file.filename or not file.filename.endswith(".csv"):
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": "Only CSV files are accepted"}
+        )
+
+    result = await ingest_csv(file)
+
+    if result.get("status") == "error":
+        raise HTTPException(
+            status_code=422,
+            detail={"status": "error", "message": result["message"]}
+        )
+
+    # Invalidate cache since bulk data was written
+    await invalidate_all()
+
+    return JSONResponse(status_code=200, content=result)
 
 # GET /api/profiles/{id}
 @app.get("/api/profiles/{id}")
@@ -1242,3 +1268,4 @@ register_tortoise(
     generate_schemas=True,
     add_exception_handlers=True,
 )
+
