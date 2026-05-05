@@ -1,5 +1,7 @@
 import time
+import asyncio
 
+_lock = asyncio.Lock()
 # In-memory store
 cache_store = {}
 
@@ -29,19 +31,15 @@ def get(key: str):
     return entry["value"]
 
 
-def set(key: str, value: dict):
-    """
-    Store value in cache with TTL and LRU eviction.
-    """
-    # Evict if cache is full
-    if len(cache_store) >= MAX_CACHE_SIZE:
-        evict_lru()
-
-    cache_store[key] = {
-        "value": value,
-        "expires_at": time.time() + CACHE_TTL,
-        "last_accessed": time.time(),
-    }
+async def set(key: str, value: dict):
+    async with _lock:
+        if len(cache_store) >= MAX_CACHE_SIZE:
+            evict_lru()
+        cache_store[key] = {
+            "value": value,
+            "expires_at": time.time() + CACHE_TTL,
+            "last_accessed": time.time(),
+        }
 
 
 def evict_lru():
@@ -60,9 +58,6 @@ def evict_lru():
         del cache_store[oldest_key]
 
 
-def invalidate_all():
-    """
-    Clear entire cache.
-    Used after writes to prevent stale data.
-    """
-    cache_store.clear()
+async def invalidate_all():
+    async with _lock:
+        cache_store.clear()
