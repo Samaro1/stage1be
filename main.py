@@ -24,6 +24,8 @@ import time
 from urllib.parse import quote
 import base64
 import hashlib
+from cache import cache
+from utils import normalize_cache_key
 
 from models import Profile
 from utils import (
@@ -759,7 +761,7 @@ async def export_profiles(
 @app.get("/api/profiles")
 async def fetch_profiles(
     request: Request,
-    user: Users= Depends(require_analyst),
+    user: Users = Depends(require_analyst),
     gender: Optional[str] = None,
     country_id: Optional[str] = None,
     age_group: Optional[str] = None,
@@ -779,6 +781,7 @@ async def fetch_profiles(
             status_code=422,
             detail={"status": "error", "message": f"Invalid sort_by. Allowed: {', '.join(sorted(ALLOWED_SORT_FIELDS))}"}
         )
+
     if order not in {"asc", "desc"}:
         raise HTTPException(
             status_code=422,
@@ -787,6 +790,7 @@ async def fetch_profiles(
 
     # Build filters
     filters = {}
+
     if gender is not None:
         if not gender.strip():
             raise HTTPException(
@@ -834,7 +838,7 @@ async def fetch_profiles(
                 detail={"status": "error", "message": "min_gender_probability must be between 0 and 1"}
             )
         filters["gender_probability__gte"] = min_gender_probability
-        
+
     if min_country_probability is not None:
         if not 0 <= min_country_probability <= 1:
             raise HTTPException(
@@ -843,49 +847,70 @@ async def fetch_profiles(
             )
         filters["country_probability__gte"] = min_country_probability
 
-    # Build queryset
+    # Build cache key + check cache
+    cache_key = normalize_cache_key(
+        filters=filters,
+        page=page,
+        limit=limit,
+        sort_by=sort_by,
+        order=order
+    )
+
+    cached_result = cache.get(cache_key)
+    if cached_result:
+        return JSONResponse(
+            status_code=200,
+            content=cached_result
+        )
+
+    #DB query
     queryset = Profile.filter(**filters)
+
     if sort_by:
         order_str = sort_by if order == "asc" else f"-{sort_by}"
         queryset = queryset.order_by(order_str)
 
-    #count first, then paginate
     total = await queryset.count()
     profiles = await queryset.offset((page - 1) * limit).limit(limit)
 
-    total_pages= math.ceil(total / limit) if total > 0 else 1
-    links= build_pagination_links(request,page, limit, total_pages)
+    total_pages = math.ceil(total / limit) if total > 0 else 1
+    links = build_pagination_links(request, page, limit, total_pages)
+
+    #Build response
+    response_data = {
+        "status": "success",
+        "page": page,
+        "limit": limit,
+        "total": total,
+        "total_pages": total_pages,
+        "links": links,
+        "data": [
+            {
+                "id": str(p.id),
+                "name": p.name,
+                "gender": p.gender,
+                "gender_probability": p.gender_probability,
+                "age": p.age,
+                "age_group": p.age_group,
+                "country_id": p.country_id,
+                "country_name": p.country_name,
+                "country_probability": p.country_probability,
+                "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
+            }
+            for p in profiles
+        ]
+    }
+
+    #Store in cache
+    cache.set(cache_key, response_data)
 
     return JSONResponse(
         status_code=200,
-        content={
-            "status": "success",
-            "page": page,
-            "limit": limit,
-            "total": total,
-            "total_pages": total_pages,
-            "links": links,
-            "data": [
-                {
-                    "id": str(p.id),
-                    "name": p.name,
-                    "gender": p.gender,
-                    "gender_probability": p.gender_probability,
-                    "age": p.age,
-                    "age_group": p.age_group,
-                    "country_id": p.country_id,
-                    "country_name": p.country_name,
-                    "country_probability": p.country_probability,
-                    "created_at": p.created_at.isoformat().replace("+00:00", "Z"),
-                }
-                for p in profiles
-            ]
-        }
+        content=response_data
     )
 
 
 # GET /api/profiles/{id}
-
 @app.get("/api/profiles/{id}")
 async def get_profile(id: str,
                       user: Users= Depends(require_analyst)):
