@@ -24,6 +24,17 @@ A secure, scalable FastAPI backend for profile intelligence enrichment with GitH
 - Processes and normalizes external data automatically
 - Idempotent profile creation (no duplicate records)
 
+### Performance Optimizations
+- **In-memory caching**: Fast retrieval of recently accessed profiles with TTL and LRU eviction
+- **Database indexing**: Optimized indexes on gender, country, age group, and composite fields for fast queries
+- **Query optimization**: Efficient filtering, sorting, and pagination using indexed columns
+
+### Bulk Data Ingestion
+- **CSV upload support**: Stream-parse and validate large CSV files for bulk profile creation
+- **Chunked processing**: Process data in chunks to handle large files efficiently
+- **Data validation**: Comprehensive validation of CSV rows with error reporting
+- **Duplicate handling**: Skip or update existing profiles during bulk import
+
 ### Backend Infrastructure
 - Secure GitHub OAuth/GitHub App authentication
 - Multiple auth flows: Web Portal, CLI (PKCE), and Server-to-Server
@@ -47,6 +58,8 @@ A secure, scalable FastAPI backend for profile intelligence enrichment with GitH
 - **Database**: PostgreSQL 14+
 - **Authentication**: GitHub OAuth / GitHub Apps
 - **Async HTTP**: httpx 0.28.1
+- **Caching**: In-memory LRU cache with TTL
+- **Data Ingestion**: CSV processing with validation
 - **Python**: 3.12+
 - **ID Generation**: uuid6 for UUID v7
 - **Testing**: pytest, pytest-asyncio
@@ -579,6 +592,23 @@ Response:
     "country_probability": 0.85,
     "created_at": "2026-04-01T12:00:00Z"
   }
+}
+```
+
+### Upload Profiles CSV
+**POST /api/profiles/upload** ⚠️ Admin Only
+
+Upload a CSV file to bulk create profiles. The CSV should have columns: name, gender, gender_probability, age, age_group, country_id, country_name, country_probability.
+
+Request: Multipart form data with `file` field containing CSV file.
+
+Response:
+```json
+{
+  "status": "success",
+  "inserted": 150,
+  "skipped": 5,
+  "errors": []
 }
 ```
 
