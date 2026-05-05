@@ -1,7 +1,9 @@
 import time
 import asyncio
 
-_lock = asyncio.Lock()
+_lock: asyncio.Lock | None = None
+
+
 # In-memory store
 cache_store = {}
 
@@ -9,6 +11,13 @@ cache_store = {}
 MAX_CACHE_SIZE = 1000
 CACHE_TTL = 300  # 5 minutes
 
+def _get_lock():
+    """Ensure we have a lock for cache operations.
+    """
+    global _lock
+    if _lock is None:
+        _lock = asyncio.Lock()
+    return _lock
 
 def get(key: str):
     """
@@ -22,7 +31,7 @@ def get(key: str):
 
     # Check expiration
     if entry["expires_at"] < time.time():
-        del cache_store[key]
+        cache_store.pop(key, None)
         return None
 
     # Update LRU access time
@@ -32,9 +41,9 @@ def get(key: str):
 
 
 async def set(key: str, value: dict):
-    async with _lock:
+    async with _get_lock():
         if len(cache_store) >= MAX_CACHE_SIZE:
-            evict_lru()
+            await evict_lru()
         cache_store[key] = {
             "value": value,
             "expires_at": time.time() + CACHE_TTL,
@@ -42,7 +51,7 @@ async def set(key: str, value: dict):
         }
 
 
-def evict_lru():
+async def evict_lru():
     """
     Remove least recently used item.
     """
@@ -55,9 +64,9 @@ def evict_lru():
             oldest_key = key
 
     if oldest_key:
-        del cache_store[oldest_key]
+        cache_store.pop(oldest_key, None)
 
 
 async def invalidate_all():
-    async with _lock:
+    async with _get_lock():
         cache_store.clear()
