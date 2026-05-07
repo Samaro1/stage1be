@@ -1,9 +1,12 @@
 import csv
 import io
+import logging
+import time
 from typing import Dict, Any
 from models import Profile
 from uuid6 import uuid7
 
+logger = logging.getLogger(__name__)
 
 CHUNK_SIZE = 1000
 
@@ -106,6 +109,26 @@ async def ingest_csv(file) -> Dict[str, Any]:
     Already-inserted rows are kept if processing fails midway.
     """
 
+    start_time = time.perf_counter()
+
+    def _response(payload: dict[str, Any]) -> dict[str, Any]:
+        payload["duration_seconds"] = round(time.perf_counter() - start_time, 3)
+        if payload.get("status") == "success":
+            logger.info(
+                "CSV upload completed: total_rows=%d inserted=%d skipped=%d duration=%.3f seconds",
+                payload.get("total_rows", 0),
+                payload.get("inserted", 0),
+                payload.get("skipped", 0),
+                payload["duration_seconds"],
+            )
+        else:
+            logger.warning(
+                "CSV upload failed: %s duration=%.3f seconds",
+                payload.get("message"),
+                payload["duration_seconds"],
+            )
+        return payload
+
     total_rows = 0
     inserted = 0
     skipped = 0
@@ -133,18 +156,18 @@ async def ingest_csv(file) -> Dict[str, Any]:
 
     # Validate headers exist before processing any rows.
     if reader.fieldnames is None:
-        return {
+        return _response({
             "status": "error",
             "message": "CSV file is empty or missing headers",
-        }
+        })
 
     actual_columns = {col.strip().lower() for col in reader.fieldnames}
     missing_columns = EXPECTED_COLUMNS - actual_columns
     if missing_columns:
-        return {
+        return _response({
             "status": "error",
             "message": f"Missing required columns: {', '.join(sorted(missing_columns))}",
-        }
+        })
 
     # 3. Pre-load all existing names into a set for duplicate checks, else every row would require a DB query.
     existing_names = set(
@@ -213,13 +236,13 @@ async def ingest_csv(file) -> Dict[str, Any]:
         inserted += count
         skipped += len(batch) - count
 
-    return {
+    return _response({
         "status": "success",
         "total_rows": total_rows,
         "inserted": inserted,
         "skipped": skipped,
         "reasons": {k: v for k, v in reasons.items() if v > 0},
-    }
+    })
 
 
 async def _flush_batch(batch: list[Profile], reasons: dict) -> int:
