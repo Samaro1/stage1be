@@ -211,27 +211,27 @@ async def api_version_middleware(request: Request, call_next):
 @app.get("/auth/github")
 async def github_login(redirect: Optional[str] = None):
     state = secrets.token_urlsafe(32)
-    code_verifier = base64.urlsafe_b64encode(secrets.token_bytes(32)).rstrip(b"=").decode()
-    code_challenge = base64.urlsafe_b64encode(
-        hashlib.sha256(code_verifier.encode()).digest()
-    ).rstrip(b"=").decode()
-    
-    OAUTH_STATES[state] = {
-        "redirect": redirect,
-        "code_verifier": code_verifier
-    }
 
+    # choose correct callback
     callback = WEB_REDIRECT_URI if redirect == "web" else GITHUB_REDIRECT_URI
 
+    # store full auth context
+    OAUTH_STATES[state] = {
+        "redirect": redirect,
+        "redirect_uri": callback
+    }
+    safe_callback = callback or ""
+    encoded_callback = quote(safe_callback, safe="")
+
     github_auth_url = (
-        f"https://github.com/login/oauth/authorize"
+        "https://github.com/login/oauth/authorize"
         f"?client_id={GITHUB_CLIENT_ID}"
-        f"&redirect_uri={quote(callback or '', safe='')}"
-        f"&scope=user%3Aemail"
+        f"&redirect_uri={encoded_callback}"
+        f"&scope=user:email"
         f"&state={state}"
-        f"&code_challenge={code_challenge}"
-        f"&code_challenge_method=S256"
+        "&allow_signup=true"
     )
+
     return RedirectResponse(url=github_auth_url)
 
 @app.get("/auth/github/callback")
@@ -239,22 +239,26 @@ async def github_callback(
     code: Optional[str] = None,
     state: Optional[str] = None,
 ):
+    # Basic validation
     if not code:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Missing code parameter"}
         )
+
     if not state:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Missing state parameter"}
         )
+
     if state not in OAUTH_STATES:
         raise HTTPException(
             status_code=400,
             detail={"status": "error", "message": "Invalid state"}
         )
-    # TEST MODE: bypass EVERYTHING (state ignored)
+
+    # TEST MODE (bypass OAuth)
     if code == "test_code":
         user = await Users.filter(role="admin").first()
 
@@ -283,18 +287,22 @@ async def github_callback(
             "refresh_token": refresh_token
         }
 
-    # NORMAL FLOW: state validation only for real OAuth
-    del OAUTH_STATES[state]
+    # NORMAL FLOW
+
+    # retrieve stored state data
+    state_data = OAUTH_STATES.pop(state)
+    redirect_uri = state_data["redirect_uri"]
 
     async with httpx.AsyncClient() as client:
 
+        # exchange code for GitHub access token
         token_response = await client.post(
             "https://github.com/login/oauth/access_token",
             json={
                 "client_id": GITHUB_CLIENT_ID,
                 "client_secret": GITHUB_CLIENT_SECRET,
                 "code": code,
-                "redirect_uri": GITHUB_REDIRECT_URI,
+                "redirect_uri": redirect_uri,
             },
             headers={"Accept": "application/json"}
         )
@@ -305,9 +313,13 @@ async def github_callback(
         if not github_token:
             raise HTTPException(
                 status_code=502,
-                detail={"status": "error", "message": "Failed to obtain GitHub access token"}
+                detail={
+                    "status": "error",
+                    "message": "Failed to obtain GitHub access token"
+                }
             )
 
+        # fetch GitHub user
         user_response = await client.get(
             "https://api.github.com/user",
             headers={
@@ -322,18 +334,21 @@ async def github_callback(
         user_name = user_data.get("login")
         user_avatar_url = user_data.get("avatar_url")
 
+        # fetch emails
         email_response = await client.get(
             "https://api.github.com/user/emails",
-            headers={"Authorization": f"Bearer {github_token}"}
+            headers={
+                "Authorization": f"Bearer {github_token}",
+                "Accept": "application/json"
+            }
         )
 
-        emails = email_response.json()
+        emails = email_response.json() if email_response.status_code == 200 else []
         primary_email = next(
-            (e["email"] for e in emails if e.get("primary")),
+            (e.get("email") for e in emails if e.get("primary")),
             None
         )
 
-    # role assignment
     user_count = await Users.all().count()
     role = "admin" if user_count == 0 else "analyst"
 
