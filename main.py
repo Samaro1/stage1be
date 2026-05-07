@@ -1097,6 +1097,9 @@ async def web_callback(code: str, state: str, response: Response):
             headers={"Accept": "application/json"}
         )
         token_data = token_response.json()
+
+        print("TOKEN RESPONSE:", token_data)
+
         github_token = token_data.get("access_token")
 
         if not github_token:
